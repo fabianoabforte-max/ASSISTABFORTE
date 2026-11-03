@@ -266,6 +266,8 @@ const PADRAO = () => ({
     ],
     pessoas: [{ id: "p1", nome: "Faz-tudo", padrao: true }],
     responsavel: "",
+    formNome: "Form. PSQ 08 - 04 Solicitação de assistência técnica pós-obra",
+    formRevisao: "Revisão: 02  -  Data: 13/03/2023",
     diasAceite: 3,
     feriados: [],
     driveClientId: "",
@@ -864,6 +866,9 @@ function vAjustes() {
   <p class="sec-t">formulário PSQ 08-04</p>
   <div class="card">
     <div class="field"><label for="aResp">Engenheiro / responsável (assina pela empresa)</label><input id="aResp" value="${esc(S.config.responsavel)}" placeholder="Nome como vai no formulário"></div>
+    <div class="field"><label for="aFormNome">Nome do formulário (título impresso)</label><input id="aFormNome" value="${esc(S.config.formNome)}"></div>
+    <div class="field"><label for="aFormRev">Linha de revisão (rodapé impresso)</label><input id="aFormRev" value="${esc(S.config.formRevisao)}"></div>
+    <p class="mut" style="font-size:12px;margin:-4px 0 12px">Quando a empresa publicar uma revisão nova do formulário, troque esses dois campos — o documento impresso passa a sair com ela.</p>
     <div class="field" style="max-width:220px"><label for="aAceite">Prazo de aceite do cliente (dias úteis)</label><input id="aAceite" inputmode="numeric" value="${esc(S.config.diasAceite)}"></div>
     <div class="field"><label for="aFeriados">Feriados locais (um por linha: DD/MM ou DD/MM/AAAA)</label><textarea id="aFeriados" style="min-height:80px" placeholder="20/01">${esc((S.config.feriados || []).map(f => f.length === 5 ? f.slice(3) + "/" + f.slice(0, 2) : dBR(f)).join("\n"))}</textarea>
       <p class="mut" style="font-size:12px;margin:5px 0 0">Feriados nacionais e Sexta-feira Santa já entram sozinhos na conta.</p></div>
@@ -896,6 +901,10 @@ function lerAjustes() {
   if (r) S.config.pessoas.forEach(p => p.padrao = p.id === r.value);
   const resp = document.getElementById("aResp");
   if (resp) S.config.responsavel = resp.value.trim();
+  const fn = document.getElementById("aFormNome");
+  if (fn) S.config.formNome = fn.value.trim() || S.config.formNome;
+  const fr = document.getElementById("aFormRev");
+  if (fr) S.config.formRevisao = fr.value.trim();
   const ac = document.getElementById("aAceite");
   if (ac) S.config.diasAceite = Math.max(1, Math.round(num(ac.value)) || 3);
   const fer = document.getElementById("aFeriados");
@@ -1221,13 +1230,13 @@ function mensagemCliente(c) {
     t += "\n\nCaso tenha alguma objeção quanto aos serviços realizados, pedimos que retorne em até " + S.config.diasAceite +
       " dia(s) útil(eis), ou seja, até " + dBR(prazo) + ". Não havendo manifestação nesse prazo, o chamado será considerado ACEITO e encerrado.";
   }
-  t += "\n\nSegue em anexo o formulário do atendimento. Permanecemos à disposição.\n\n" + (S.config.responsavel || "");
+  t += "\n\nSegue em anexo o " + S.config.formNome + " nº " + fmtSeq(c.seq) + ". Permanecemos à disposição.\n\n" + (S.config.responsavel || "");
   return t;
 }
 function abrirMensagem(c) {
   const im = imovel(c.imovelId) || {};
   const txt = mensagemCliente(c);
-  const assunto = (todosNaoProcedem(c) ? "Comunicado — Chamado nº " : "Relatório de assistência técnica — Chamado nº ") + fmtSeq(c.seq);
+  const assunto = S.config.formNome + " nº " + fmtSeq(c.seq);
   dlg.innerHTML = `<div class="dbody"><h2>Mensagem para o cliente</h2>
     <p class="mut" style="font-size:12.5px;margin:4px 0 10px">Imprima o formulário e anexe. Depois registre a data de envio no chamado para começar a contar o prazo de aceite.</p>
     <textarea id="msgTxt" style="min-height:220px;font-size:13px">${esc(txt)}</textarea>
@@ -1425,7 +1434,7 @@ function htmlFormulario(c) {
   const C = (c1, c2, r1, r2, cls, html) => `<div class="c ${cls || ""}" style="grid-column:${c1}/${c2 + 1};grid-row:${r1}/${r2 + 1}">${html || ""}</div>`;
   // área pautada: texto corrido por cima + uma borda por linha da planilha
   const L = (c1, c2, r1, r2, html) => { let o = ""; for (let r = r1; r <= r2; r++) o += `<div class="ln" style="grid-column:${c1}/${c2 + 1};grid-row:${r}/${r + 1}"></div>`; return o + C(c1, c2, r1, r2, "lines", html); };
-  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Form. PSQ 08 - 04 nº ${fmtSeq(c.seq)}</title>
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${e(S.config.formNome)} nº ${fmtSeq(c.seq)}</title>
 <style>
 @page{size:A4 portrait;margin:8mm 8mm 9mm 8mm}
 html,body{margin:0;background:#fff;color:#000;font-family:Calibri,Carlito,"Segoe UI",Arial,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -1449,7 +1458,7 @@ html,body{margin:0;background:#fff;color:#000;font-family:Calibri,Carlito,"Segoe
 @media screen{body{padding:10mm 0;background:#888}.pg{background:#fff;padding:8mm;box-shadow:0 2px 12px rgba(0,0,0,.4)}}
 </style></head><body onload="setTimeout(print, 300)"><div class="pg"><div class="f">
 ${C(1, 4, 1, 1, "logo", `<img src="${LOGO}" alt="AB Forte Incorporações">`)}
-${C(5, 16, 1, 1, "tit", "Form. PSQ 08 - 04 Solicitação de assistência técnica pós-obra")}
+${C(5, 16, 1, 1, "tit", e(S.config.formNome))}
 ${C(1, 3, 2, 2, "b", "EMPREENDIMENTO:")}${C(4, 11, 2, 2, "u val", e(nomeCond(im)))}${C(12, 13, 2, 2, "b ctr", "Nº SEQUENCIAL:")}${C(14, 16, 2, 2, "u val ctr", fmtSeq(c.seq))}
 ${C(1, 3, 3, 3, "b", "PROPRIETÁRIO:")}${C(4, 16, 3, 3, "u val", e(im.cliente))}
 ${C(1, 2, 4, 4, "b", "UNIDADE:")}${C(3, 8, 4, 4, "u val", e(im.endereco))}${C(9, 11, 4, 4, "b ctr", "TELEFONE PARA CONTATO:")}${C(12, 16, 4, 4, "u val", e(im.telefone))}
@@ -1469,7 +1478,7 @@ ${C(1, 16, 32, 32, "decl", "Declaro que os serviços de assistência técnica so
 ${C(4, 8, 34, 34, "u", "")}${C(10, 15, 34, 34, "u", "")}
 ${C(4, 8, 35, 35, "ctr", "Assinatura Engenheiro ou Responsável")}${C(10, 15, 35, 35, "ctr", "Assinatura do Proprietário ou Responsável")}
 ${C(1, 2, 36, 36, "b", "Data:")}${C(3, 4, 36, 36, "u val", c.encerrado ? dBR(c.encerrado.data) : "")}
-${C(13, 16, 37, 37, "rod", "Revisão: 02 &nbsp;-&nbsp; Data: 13/03/2023")}
+${C(13, 16, 37, 37, "rod", e(S.config.formRevisao).replace(/ {2}/g, " &nbsp;"))}
 </div></div></body></html>`;
 }
 
@@ -1725,7 +1734,7 @@ function autoteste() {
   const mg = migrar({ chamados: [{ id: "a", criadoEm: "2026-02-01" }, { id: "b", criadoEm: "2026-01-01" }, { id: "c", criadoEm: "2026-03-01", seq: 7 }] });
   T("nº sequencial: mantém o existente e numera os outros pela criação", mg.chamados.map(x => x.seq).join() === "9,8,7" && fmtSeq(9) === "0009");
   let html = ""; try { html = htmlFormulario(S.chamados[1]); } catch (err) { console.error(err); }
-  T("formulário monta com os dados do chamado", html.includes("Ana") && html.includes("Res. Sol") && html.includes("Revisão: 02") && html.includes("Form. PSQ 08 - 04"));
+  T("formulário monta com os dados do chamado", html.includes("Ana") && html.includes("Res. Sol") && html.includes("Revisão: 02") && html.includes("Form. PSQ 08 - 04") && (S.config.formRevisao = "Revisão: 03", htmlFormulario(S.chamados[1]).includes("Revisão: 03")));
   T("whatsapp põe o 55", wa("(11) 99999-0000") === "https://wa.me/5511999990000" && wa("5511999990000") === "https://wa.me/5511999990000");
   T("addAnos respeita ano bissexto", addAnos("2024-02-29", 1) === "2025-03-01");
   const i = ics(S.visitas[0]);

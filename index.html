@@ -887,6 +887,8 @@ function vAjustes() {
     <p style="margin:0 0 12px;font-size:12px;color:${ub && dias(ub, hoje()) < 30 ? "var(--tx3)" : "var(--wa-tx)"}">${ub ? "último backup: " + dBR(ub) + " (há " + dias(ub, hoje()) + " dias)" : "você nunca exportou backup"} · as fotos não vão no arquivo (ficam no Drive)</p>
     <button class="btn sec" data-act="exportar">Exportar backup</button>
     <button class="btn sec" data-act="importar" style="margin-top:10px">Importar backup</button>
+    <p class="mut" style="font-size:12px;margin:12px 0 6px">Arquivo de cadastros (lista de clientes/casas): soma aos que já existem, sem apagar nada.</p>
+    <button class="btn sec" data-act="importar">Importar cadastros</button>
   </div>
   <p class="dl">${S.imoveis.length} imóveis · ${S.chamados.length} chamados · ${S.visitas.length} visitas · ${S.fotos.length} fotos</p>`;
 }
@@ -1214,6 +1216,27 @@ function formAssinatura(c) {
   });
 }
 // texto pronto pro cliente — conclusão com prazo de aceite, ou não procedência
+function mesclarCadastros(d) {
+  const mapa = {}, r = { conds: 0, casas: 0, repetidas: 0 };
+  (d.condominios || []).forEach(cd => {
+    const existente = S.condominios.find(x => norm(x.nome) === norm(cd.nome));
+    if (existente) { mapa[cd.id] = existente.id; return; }
+    const novo = { id: uid(), nome: cd.nome, endereco: cd.endereco || "", entrega: cd.entrega || "", obs: cd.obs || "" };
+    S.condominios.push(novo); mapa[cd.id] = novo.id; r.conds++;
+  });
+  (d.imoveis || []).forEach(im => {
+    const cid = mapa[im.condominioId] || im.condominioId || null;
+    const igual = S.imoveis.some(x => x.condominioId === cid && norm(x.endereco) === norm(im.endereco) && norm(x.endereco) !== "");
+    if (igual) { r.repetidas++; return; }
+    S.imoveis.push({
+      id: uid(), cliente: im.cliente || "", telefone: im.telefone || "", horarios: im.horarios || "",
+      condominioId: cid, endereco: im.endereco || "", entrega: im.entrega || "", obs: im.obs || "",
+      criadoEm: im.criadoEm || new Date().toISOString()
+    });
+    r.casas++;
+  });
+  return r;
+}
 function mensagemCliente(c) {
   const im = imovel(c.imovelId) || {}, e = c.encerrado;
   const nps = itens(c).filter(naoProcede), ps = itens(c).filter(procede);
@@ -1659,6 +1682,13 @@ document.addEventListener("change", e => {
       try {
         const d = JSON.parse(fr.result);
         if (!d || !Array.isArray(d.imoveis)) throw 0;
+        if (d.mesclar) {
+          if (!confirm("Adicionar " + d.imoveis.length + " casa(s) aos cadastros atuais? Nada é apagado.")) return;
+          const r = mesclarCadastros(d);
+          salvar(); render();
+          return alert(r.casas + " casa(s) e " + r.conds + " condomínio(s) adicionados." +
+            (r.repetidas ? "\n" + r.repetidas + " casa(s) já existiam e foram ignoradas." : ""));
+        }
         if (!confirm("Substituir os dados atuais por " + d.chamados.length + " chamados do backup?")) return;
         S = migrar(d); salvar(); render(); alert("Backup restaurado.");
       } catch (err) { alert("Arquivo inválido."); }
@@ -1728,6 +1758,15 @@ function autoteste() {
   S.chamados[1].encerrado = { status: "resolvido", data: "2026-01-08" , obs: "", servicos: "", assinatura: { data: "2026-01-09", tipo: "assinado" }, envio: { data: "2026-01-08", meio: "whatsapp" }, prazo: "2026-01-13" };
   const mg3 = migrar({ chamados: [{ id: "q", criadoEm: "", itens: [{ tipoId: "pintura", descricao: "" }], encerrado: { status: "fora_garantia", data: "2026-02-01", obs: "venceu" } }] });
   T("migração: status 'fora de garantia' vira motivo do problema", mg3.chamados[0].itens[0].motivo === "fora_garantia" && mg3.chamados[0].encerrado.status === "nao_procede");
+  S.condominios = [{ id: "k1", nome: "Res. Sol", endereco: "", entrega: "2023-03-10", obs: "" }];
+  S.imoveis = [{ id: "i1", cliente: "Ana", telefone: "", condominioId: "k1", endereco: "casa 1", entrega: "" }];
+  const arq = { mesclar: true, condominios: [{ id: "x9", nome: "RES. SOL" }], imoveis: [
+    { id: "a", cliente: "Bia", telefone: "(67) 99999-0000", condominioId: "x9", endereco: "Casa 02" },
+    { id: "b", cliente: "Outro morador", telefone: "", condominioId: "x9", endereco: "casa 1" }] };
+  const rm = mesclarCadastros(arq);
+  T("importar cadastros reaproveita condomínio de mesmo nome", rm.conds === 0 && S.condominios.length === 1);
+  T("importar cadastros não duplica casa já existente", rm.casas === 1 && rm.repetidas === 1 && S.imoveis.length === 2);
+  T("casa importada fica ligada ao condomínio certo", S.imoveis[1].condominioId === "k1" && S.imoveis[1].cliente === "Bia");
   T("resumo dos serviços vem das visitas feitas", servicosDasVisitas(S.chamados[1]) === "08/01/2026 — trocou o rejunte (material: Rejunte 1 kg)");
   T("encerrado sem envio fica pendente de validação", pendenteValidacao({ encerrado: { status: "resolvido", data: "2026-01-08" } }) === true && validacao({ encerrado: { status: "resolvido", data: "2026-01-08" } }).k === "enviar");
   T("encerrado assinado não fica pendente", pendenteValidacao({ encerrado: { status: "resolvido", data: "2026-01-08", envio: { data: "2026-01-08" }, prazo: "2026-01-13", assinatura: { data: "2026-01-09", tipo: "assinado" } } }) === false);

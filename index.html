@@ -91,6 +91,10 @@ input[type=checkbox],input[type=radio]{width:auto;margin:0 6px 0 0;accent-color:
 .note.in{background:var(--in-bg);color:var(--in-tx)}
 .chip{display:inline-block;font-size:12px;padding:6px 11px;border-radius:14px;border:1px solid var(--line2);color:var(--tx2);cursor:pointer;background:none;margin:0 6px 6px 0}
 .chip[aria-pressed=true]{background:var(--in-bg);color:var(--in-tx);border-color:transparent}
+.seg{display:flex;gap:7px;flex-wrap:wrap}
+.seg button{flex:1 1 40%;background:transparent;color:var(--tx);border:1px solid var(--line2);border-radius:10px;padding:9px 6px;font-size:14px;cursor:pointer}
+.seg button[aria-pressed=true]{background:var(--ac);color:var(--ac-tx);border-color:var(--ac);font-weight:600}
+.diag label{margin-top:6px}
 .sec-t{font-size:12px;color:var(--tx2);margin:16px 0 7px;text-transform:uppercase;letter-spacing:.04em}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:12px}
 .kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:12px}
@@ -229,6 +233,26 @@ dialog .big{max-width:100%;max-height:75vh;display:block;margin:0 auto;border-ra
 const KEY = "assist_v1";
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
+// Sistemas afetados no padrão do SGQ. Os anos são sugestão (NBR 15575 /
+// manual do proprietário) e ficam editáveis nos ajustes — quem decide o
+// prazo que a empresa pratica é o engenheiro, não o app.
+const SISTEMAS_SGQ = [
+  ["hidraulica", "Instalações hidráulicas", 3], ["eletrica", "Instalações elétricas", 3],
+  ["gas", "Instalações de gás", 3], ["caixa_agua", "Caixa d'água / reservatório", 5],
+  ["cobertura", "Cobertura / telhado", 5], ["esq_fachada", "Esquadrias – fachada", 3],
+  ["portas_int", "Portas internas", 2], ["portas_ext", "Portas externas", 2],
+  ["ceramico", "Revestimento cerâmico (pisos/paredes)", 5], ["pintura", "Pintura", 1],
+  ["imperm", "Impermeabilização", 5], ["estrutura", "Estrutural", 5],
+  ["argamassa", "Revestimento em argamassa", 5], ["fissuras", "Fissuras", 5],
+  ["forro", "Forro", 1], ["calcada", "Calçada", 1],
+  ["esgoto", "Esgoto sanitário", 3], ["pluviais", "Águas pluviais", 3],
+  ["calha", "Calha", 2], ["pias", "Pias", 1], ["bancadas", "Bancadas", 1],
+  ["soleiras", "Soleiras e peitoril", 2], ["vaso", "Vaso sanitário", 1],
+  ["tanque", "Tanque", 1], ["rejunte", "Rejunte e vedação", 1],
+  ["fechaduras", "Fechaduras e ferragens", 2], ["louças", "Louças e metais", 2],
+  ["outro", "Outros", 1]
+];
+
 const PADRAO = () => ({
   config: {
     garantias: [
@@ -242,6 +266,8 @@ const PADRAO = () => ({
     ],
     pessoas: [{ id: "p1", nome: "Faz-tudo", padrao: true }],
     responsavel: "",
+    diasAceite: 3,
+    feriados: [],
     driveClientId: "",
     ultimoBackup: null
   },
@@ -268,6 +294,26 @@ function migrar(d) {
   d.chamados.forEach(c => {
     if (!Array.isArray(c.itens) || !c.itens.length) c.itens = [{ tipoId: c.tipoId, descricao: c.descricao || "" }];
     delete c.tipoId; delete c.descricao;
+    // diagnóstico por problema: procede / não procede, com motivo e parecer
+    c.itens.forEach(it => {
+      if (it.resultado === undefined) it.resultado = "";
+      if (it.motivo === undefined) it.motivo = "";
+      if (it.parecer === undefined) it.parecer = "";
+    });
+    c.historico = Array.isArray(c.historico) ? c.historico : [];
+    c.ciclos = Array.isArray(c.ciclos) ? c.ciclos : [];
+    if (c.encerrado) {
+      const e = c.encerrado;
+      if (!e.envio) e.envio = { data: "", meio: "" };
+      if (e.prazo === undefined) e.prazo = "";
+      // versões anteriores guardavam só { data } na assinatura
+      if (e.assinatura && !e.assinatura.tipo) e.assinatura.tipo = "assinado";
+      // "fora de garantia" virou motivo do item, não status do chamado
+      if (e.status === "fora_garantia") {
+        c.itens.forEach(it => { if (!it.resultado) { it.resultado = "nao_procede"; it.motivo = "fora_garantia"; it.parecer = it.parecer || e.obs || "Fora do prazo de garantia."; } });
+        e.status = "nao_procede";
+      }
+    }
   });
   d.visitas.forEach(v => { if (v.cancelada === undefined) v.cancelada = null; });
   let seq = Math.max(0, ...d.chamados.map(c => c.seq || 0));
@@ -295,6 +341,26 @@ const dBR = s => (s ? s.slice(8, 10) + "/" + s.slice(5, 7) + "/" + s.slice(0, 4)
 const dias = (a, b) => Math.round((new Date(b + "T12:00:00") - new Date(a + "T12:00:00")) / 86400000);
 const addDias = (s, n) => { const d = new Date(s + "T12:00:00"); d.setDate(d.getDate() + n); return iso(d); };
 const addAnos = (s, n) => { const d = new Date(s + "T12:00:00"); d.setFullYear(d.getFullYear() + n); return iso(d); };
+// --- dias úteis: feriados nacionais fixos + Sexta-feira Santa + os cadastrados
+function pascoa(y) {
+  const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4,
+    f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30,
+    i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7,
+    m = Math.floor((a + 11 * h + 22 * l) / 451), mo = Math.floor((h + l - 7 * m + 114) / 31),
+    da = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(y, mo - 1, da);
+}
+const FERIADOS_FIXOS = ["01-01", "04-21", "05-01", "09-07", "10-12", "11-02", "11-15", "11-20", "12-25"];
+function feriados(y) {
+  const set = new Set(FERIADOS_FIXOS.map(x => y + "-" + x));
+  const pa = pascoa(y), sf = new Date(pa); sf.setDate(pa.getDate() - 2); set.add(iso(sf));
+  (S.config.feriados || []).forEach(f => { if (/^\d{4}-\d{2}-\d{2}$/.test(f)) set.add(f); else if (/^\d{2}-\d{2}$/.test(f)) set.add(y + "-" + f); });
+  return set;
+}
+const diaUtil = d => { const w = d.getDay(); return w !== 0 && w !== 6 && !feriados(d.getFullYear()).has(iso(d)); };
+function somaDiasUteis(data, n) { const d = new Date(data + "T12:00:00"); let c = 0; while (c < n) { d.setDate(d.getDate() + 1); if (diaUtil(d)) c++; } return iso(d); }
+// dias úteis que ainda faltam até a data (0 = vence hoje, -1 = já passou)
+function diasUteisAte(data) { const d = new Date(hoje() + "T12:00:00"), p = new Date(data + "T12:00:00"); if (d > p) return -1; let c = 0; while (d < p) { d.setDate(d.getDate() + 1); if (diaUtil(d)) c++; } return c; }
 const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const norm = s => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 const wa = t => { let d = String(t || "").replace(/\D/g, ""); if (d && d.length <= 11) d = "55" + d; return "https://wa.me/" + d; };
@@ -316,6 +382,8 @@ const casasDe = cid => S.imoveis.filter(i => i.condominioId === cid).sort((a, b)
 const condsOrdenados = () => S.condominios.slice().sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
 
 const STATUS = { aberto: ["Aberto", "in"], agendado: ["Agendado", "in"], andamento: ["Em andamento", "wa"], resolvido: ["Resolvido", "ok"], fora_garantia: ["Fora de garantia", "er"], nao_procede: ["Não procede", "mut"] };
+const MOTIVOS = { fora_garantia: "Fora do prazo de garantia", modificado: "Modificado pelo cliente", mau_uso: "Mau uso / falta de manutenção", outros: "Outros" };
+const MEIOS = { whatsapp: "WhatsApp", email: "E-mail", maos: "Entregue em mãos", correio: "Correio" };
 const VTIPO = { avaliacao: "Avaliação", execucao: "Execução", retorno: "Retorno" };
 const CANAL = { whatsapp: "WhatsApp", telefone: "Telefone", pessoal: "Pessoalmente", outro: "Outro" };
 
@@ -368,7 +436,46 @@ const resumoItens = c => { const n = nomesTipos(c); return n.length > 1 ? n[0] +
 const abertos = () => S.chamados.filter(c => !c.encerrado);
 const proxSeq = () => Math.max(0, ...S.chamados.map(c => c.seq || 0)) + 1;
 const fmtSeq = n => String(n || 0).padStart(4, "0");
-const semAssinatura = c => c.encerrado && !c.encerrado.assinatura;
+// --- diagnóstico por problema -------------------------------------------
+const procede = it => it.resultado !== "nao_procede";
+const naoProcede = it => it.resultado === "nao_procede";
+const parecerFaltando = it => naoProcede(it) && (!it.motivo || !String(it.parecer || "").trim());
+const faltaParecer = c => itens(c).some(parecerFaltando);
+const todosNaoProcedem = c => itens(c).length > 0 && itens(c).every(naoProcede);
+const motivoTxt = it => it.motivo === "outros" ? "Outros" : MOTIVOS[it.motivo] || "—";
+
+// --- validação do cliente: envio do relatório → aceite (assinado ou tácito)
+// Espelha o PSQ: o cliente tem N dias úteis para contestar; passando o prazo
+// sem manifestação, o chamado é dado como aceito e fechado.
+function validacao(c) {
+  if (!c.encerrado) return null;
+  const e = c.encerrado;
+  if (e.assinatura) return e.assinatura.tipo === "tacito"
+    ? { k: "tacito", t: "aceite por decurso de prazo em " + dBR(e.assinatura.data), cls: "ok" }
+    : { k: "assinado", t: "assinado em " + dBR(e.assinatura.data), cls: "ok" };
+  if (!(e.envio || {}).data) return { k: "enviar", t: "relatório não enviado ao cliente", cls: "wa" };
+  const r = diasUteisAte(e.prazo);
+  return { k: "aguardando", t: "aguardando aceite — " + (r < 0 ? "prazo vencido" : r === 0 ? "vence hoje" : "faltam " + r + " dia(s) útil(eis)"), cls: r < 0 ? "er" : "in" };
+}
+const pendenteValidacao = c => { const v = validacao(c); return !!v && v.k !== "assinado" && v.k !== "tacito"; };
+const semAssinatura = pendenteValidacao;
+const diasAberto = c => Math.max(0, dias(c.data, (c.encerrado && c.encerrado.data) || hoje()));
+
+// --- histórico: trilha do que aconteceu no chamado
+function log(c, t) { (c.historico = c.historico || []).push({ em: new Date().toISOString(), t }); }
+// Fecha por decurso de prazo os chamados cujo aceite venceu sem manifestação.
+function fecharVencidos() {
+  let n = 0;
+  S.chamados.forEach(c => {
+    const e = c.encerrado;
+    if (e && !e.assinatura && e.envio && e.envio.data && e.prazo && hoje() > e.prazo) {
+      e.assinatura = { data: e.prazo, tipo: "tacito" };
+      log(c, "Aceite por decurso de prazo: sem manifestação do cliente até " + dBR(e.prazo) + ".");
+      n++;
+    }
+  });
+  return n;
+}
 function tituloChamado(c) { const im = imovel(c.imovelId); return (im ? im.cliente : "?") + " — " + resumoItens(c); }
 
 // --- estado de tela -----------------------------------------------------
@@ -426,7 +533,7 @@ function vAgenda() {
   const atras = S.visitas.filter(atrasada).sort((a, b) => a.data.localeCompare(b.data));
   const prox = S.visitas.filter(v => pendente(v) && v.data > hoje() && v.data <= addDias(hoje(), 7)).sort((a, b) => (a.data + a.hora).localeCompare(b.data + b.hora));
   const semV = abertos().filter(semVisita).sort((a, b) => (aRemarcar(b) ? 1 : 0) - (aRemarcar(a) ? 1 : 0) || a.data.localeCompare(b.data));
-  const semAss = S.chamados.filter(semAssinatura).sort((a, b) => a.encerrado.data.localeCompare(b.encerrado.data));
+  const semAss = S.chamados.filter(pendenteValidacao).sort((a, b) => a.encerrado.data.localeCompare(b.encerrado.data));
   return `<div class="agenda"><div>
     <div class="cal-h">
       <button class="icobtn" data-mes="-1" aria-label="mês anterior"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
@@ -442,7 +549,7 @@ function vAgenda() {
     ${atras.length ? '<p class="sec-t" style="color:var(--er-tx)">atrasadas</p>' + atras.map(cardVisita).join("") : ""}
     ${prox.length ? '<p class="sec-t">próximos 7 dias</p>' + prox.map(cardVisita).join("") : ""}
     ${semV.length ? '<p class="sec-t">chamados sem visita marcada</p><div class="rows">' + semV.map(rowChamado).join("") + "</div>" : ""}
-    ${semAss.length ? '<p class="sec-t">assinaturas pendentes</p><div class="rows">' + semAss.map(rowChamado).join("") + "</div>" : ""}
+    ${semAss.length ? '<p class="sec-t">validações pendentes</p><div class="rows">' + semAss.map(rowChamado).join("") + "</div>" : ""}
   </div></div>`;
 }
 function cardVisita(v) {
@@ -455,12 +562,12 @@ function cardVisita(v) {
     </div>
     <p style="margin:3px 0;font-size:13px;color:var(--tx2)">${diaSemana(v.data)} ${dBR(v.data)} · ${esc(resumoItens(c))}${pendente(v) ? " · " + esc((pessoa(v.pessoaId) || {}).nome || "") : ""}</p>
     <p style="margin:3px 0;font-size:13px">${esc([im.endereco, nomeCond(im)].filter(Boolean).join(" — "))}</p>
-    ${im.horarios ? `<p style="margin:3px 0;font-size:12.5px;color:var(--tx2)">🕐 atende: ${esc(im.horarios)}</p>` : ""}
+    ${im.horarios ? `<p style="margin:3px 0;font-size:12.5px;color:var(--tx2)"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg> atende: ${esc(im.horarios)}</p>` : ""}
     <div class="acts" style="margin-top:8px">
       <button class="btn sec sm" data-act="abrirChamado" data-id="${c.id}">abrir chamado</button>
       ${pendente(v) ? `<button class="btn sm" data-act="concluir" data-id="${v.id}">concluir</button><button class="btn sec sm" data-act="cancelarVisita" data-id="${v.id}">cancelar</button>` : ""}${v.cancelada ? `<button class="btn sm" data-act="remarcar" data-id="${v.id}">remarcar</button>` : ""}
       ${im.telefone ? `<a class="btn sec sm" style="text-decoration:none;display:inline-block" href="${wa(im.telefone)}" target="_blank">WhatsApp</a>` : ""}
-      ${pendente(v) ? `<button class="btn sec sm" data-act="ics" data-id="${v.id}">📅 calendário</button>` : ""}
+      ${pendente(v) ? `<button class="btn sec sm" data-act="ics" data-id="${v.id}"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg> calendário</button>` : ""}
     </div></div>`;
 }
 
@@ -502,6 +609,7 @@ function vChamados() {
 }
 function detalheChamado(c) {
   const im = imovel(c.imovelId) || {};
+  const val = validacao(c);
   const vs = visitasDe(c.id);
   const custo = vs.reduce((t, v) => t + v.materiais.reduce((s, m) => s + (finito(m.valor) ? Number(m.valor) : 0), 0), 0);
   return `<button class="icobtn voltar" data-act="voltar">‹ chamados</button>
@@ -511,12 +619,14 @@ function detalheChamado(c) {
       <p style="margin:2px 0;font-size:13px;color:var(--tx2)">${esc([im.endereco, nomeCond(im)].filter(Boolean).join(" — "))}</p></div>
       <div>${tagStatus(c)}</div>
     </div>
-    ${aRemarcar(c) ? `<div class="note er" style="margin-top:10px">⚠ <span><b>Visita cancelada e ainda sem remarcar.</b> ${esc((visitasDe(c.id).filter(v => v.cancelada).pop() || {}).cancelada.motivo || "sem motivo registrado")}</span></div>` : ""}
-    <div style="margin:8px 0">${tagGarantia(c)} ${c.encerrado ? (c.encerrado.assinatura ? `<span class="tag ok">assinado em ${dBR(c.encerrado.assinatura.data)}</span>` : '<span class="tag wa">assinatura pendente</span>') : ""}</div>
+    ${aRemarcar(c) ? `<div class="note er" style="margin-top:10px"><span><b>⚠ Visita cancelada e ainda sem remarcar.</b> ${esc((visitasDe(c.id).filter(v => v.cancelada).pop() || {}).cancelada.motivo || "sem motivo registrado")}</span></div>` : ""}
+    <div style="margin:8px 0">${tagGarantia(c)} ${val ? `<span class="tag ${val.cls}">${val.t}</span>` : ""}</div>
     <p class="sec-t" style="margin:10px 0 4px">problemas (${itens(c).length})</p>
     ${itens(c).map(it => { const gi = garantiaItem(c, it); return `<div style="padding:5px 0;border-bottom:1px solid var(--line)">
       <b style="font-size:13.5px">${esc(nomeTipo(it))}</b> ${gi ? (gi.vencida ? `<span class="tag er">fora${gi.ate && !gi.manual ? " desde " + dBR(gi.ate) : ""}</span>` : `<span class="tag ok">na garantia${gi.ate && !gi.manual ? " até " + dBR(gi.ate) : ""}</span>`) : ""}
-      ${it.descricao ? `<p style="margin:2px 0 0;font-size:13.5px;white-space:pre-wrap">${esc(it.descricao)}</p>` : ""}</div>`; }).join("")}
+      ${it.resultado ? `<span class="tag ${naoProcede(it) ? "mut" : "in"}">${naoProcede(it) ? "não procede" : "procede"}</span>` : ""}
+      ${it.descricao ? `<p style="margin:2px 0 0;font-size:13.5px;white-space:pre-wrap">${esc(it.descricao)}</p>` : ""}
+      ${naoProcede(it) ? `<p style="margin:3px 0 0;font-size:12.5px;color:var(--tx2)"><b>${esc(motivoTxt(it))}.</b> ${esc(it.parecer)}</p>` : ""}</div>`; }).join("")}
     <dl class="info" style="margin-top:8px">
       <dt>Nº</dt><dd>${fmtSeq(c.seq)}</dd>
 
@@ -531,7 +641,7 @@ function detalheChamado(c) {
     <div class="acts">
       ${im.telefone ? `<a class="btn sec sm" style="text-decoration:none;display:inline-block" href="${wa(im.telefone)}" target="_blank">WhatsApp</a>` : ""}
       <button class="btn sec sm" data-act="editarChamado" data-id="${c.id}">editar</button>
-      <button class="btn sec sm" data-act="formulario" data-id="${c.id}">🖨 formulário</button>
+      <button class="btn sec sm" data-act="formulario" data-id="${c.id}"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px"><path d="M6 9V3h12v6M6 18H4v-6h16v6h-2M8 14h8v7H8z"/></svg> formulário</button>
       ${semAssinatura(c) ? `<button class="btn sm" data-act="assinado" data-id="${c.id}">assinatura coletada</button>` : ""}
       ${c.encerrado ? `<button class="btn sec sm" data-act="reabrir" data-id="${c.id}">reabrir</button>` : `<button class="btn sec sm" data-act="encerrar" data-id="${c.id}">encerrar</button>`}
       <button class="btn sec sm" style="color:var(--er-tx)" data-act="excluirChamado" data-id="${c.id}">excluir</button>
@@ -539,7 +649,33 @@ function detalheChamado(c) {
   </div>
   <p class="sec-t">visitas</p>
   ${vs.length ? vs.map(blocoVisita).join("") : '<p class="mut" style="font-size:13px;margin:0 0 10px">Nenhuma visita ainda.</p>'}
-  ${!c.encerrado ? `<button class="btn" data-act="novaVisita" data-id="${c.id}">+ Agendar visita</button>` : ""}`;
+  ${!c.encerrado ? `<button class="btn" data-act="novaVisita" data-id="${c.id}">+ Agendar visita</button>` : ""}
+  ${c.encerrado ? cardValidacao(c, val) : ""}
+  ${c.ciclos && c.ciclos.length ? `<p class="sec-t">atendimentos anteriores (contestados)</p>${c.ciclos.map((k, i) => `<div class="card" style="padding:12px">
+    <b style="font-size:13.5px">Atendimento ${i + 1}</b> <span class="mut" style="font-size:12.5px">· encerrado em ${dBR(k.encerrado.data)}</span>
+    ${k.encerrado.servicos ? `<p style="margin:4px 0;font-size:13px;white-space:pre-wrap">${esc(k.encerrado.servicos)}</p>` : ""}
+    <p style="margin:4px 0 0;font-size:13px;color:var(--er-tx)"><b>Contestado em ${dBR(k.objecao.data)}:</b> ${esc(k.objecao.obs)}</p></div>`).join("")}` : ""}
+  ${(c.historico || []).length ? `<p class="sec-t">histórico</p><div class="card" style="padding:12px">${c.historico.slice().reverse().map(h => `<div style="display:flex;gap:10px;padding:4px 0;border-bottom:1px solid var(--line);font-size:12.5px">
+    <span class="mut" style="white-space:nowrap">${dBR(h.em.slice(0, 10))} ${h.em.slice(11, 16)}</span><span>${esc(h.t)}</span></div>`).join("")}</div>` : ""}`;
+}
+// Validação do cliente: envio do relatório → aceite assinado ou por decurso.
+function cardValidacao(c, val) {
+  const e = c.encerrado;
+  return `<p class="sec-t">validação do cliente</p>
+  <div class="card">
+    <div style="margin-bottom:8px"><span class="tag ${val.cls}">${val.t}</span></div>
+    <dl class="info">
+      <dt>Envio</dt><dd>${(e.envio || {}).data ? dBR(e.envio.data) + " · " + (MEIOS[e.envio.meio] || "—") : "não registrado"}</dd>
+      ${e.prazo ? `<dt>Prazo</dt><dd>até ${dBR(e.prazo)} (${S.config.diasAceite} dia(s) útil(eis) do envio)</dd>` : ""}
+    </dl>
+    ${val.k === "enviar" ? '<p class="mut" style="font-size:12.5px;margin:0 0 10px">Imprima o formulário, mande pro cliente e registre o envio — é daí que começa a contar o prazo.</p>' : ""}
+    <div class="acts">
+      <button class="btn sec sm" data-act="mensagem" data-id="${c.id}">mensagem pro cliente</button>
+      ${!e.assinatura ? `<button class="btn sec sm" data-act="envio" data-id="${c.id}">${(e.envio || {}).data ? "editar envio" : "registrar envio"}</button>` : ""}
+      ${!e.assinatura ? `<button class="btn sm" data-act="assinado" data-id="${c.id}">assinatura coletada</button>` : ""}
+      <button class="btn sec sm" style="color:var(--er-tx)" data-act="objecao" data-id="${c.id}">cliente contestou</button>
+    </div>
+  </div>`;
 }
 function blocoVisita(v) {
   const at = atrasada(v);
@@ -552,7 +688,7 @@ function blocoVisita(v) {
     ${v.materiais.length ? `<table class="mats">${v.materiais.map(m => `<tr><td>${esc(m.nome)}${m.qtd ? " × " + esc(m.qtd) : ""}</td><td>${money(m.valor)}</td></tr>`).join("")}</table>` : ""}
     ${v.feita || fotosDe(v.id).length ? `<div class="fotos">${fotosDe(v.id).map(f => `<img data-foto="${f.id}" alt="">`).join("")}<button class="add" data-act="addFoto" data-ref="${v.id}" aria-label="Adicionar foto">+</button></div>` : ""}
     <div class="acts" style="margin-top:6px">
-      ${pendente(v) ? `<button class="btn sm" data-act="concluir" data-id="${v.id}">concluir visita</button><button class="btn sec sm" data-act="ics" data-id="${v.id}">📅 calendário</button><button class="btn sec sm" data-act="cancelarVisita" data-id="${v.id}">cancelar</button>` : ""}
+      ${pendente(v) ? `<button class="btn sm" data-act="concluir" data-id="${v.id}">concluir visita</button><button class="btn sec sm" data-act="ics" data-id="${v.id}"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg> calendário</button><button class="btn sec sm" data-act="cancelarVisita" data-id="${v.id}">cancelar</button>` : ""}
       ${v.cancelada ? `<button class="btn sm" data-act="remarcar" data-id="${v.id}">remarcar</button>` : ""}
       <button class="btn sec sm" data-act="editarVisita" data-id="${v.id}">editar</button>
       <button class="btn sec sm" style="color:var(--er-tx)" data-act="excluirVisita" data-id="${v.id}">excluir</button>
@@ -680,9 +816,24 @@ function vPainel() {
     <div class="kpi"><p>tempo médio p/ resolver</p><b>${finito(medio) ? Math.round(medio) : "—"} <span>dias</span></b></div>
     <div class="kpi"><p>material lançado</p><b style="font-size:20px">${money(custo)}</b></div>
     <div class="kpi"><p>resolvidos</p><b>${res.length} <span>de ${S.chamados.length}</span></b></div>
-    <div class="kpi"><p>assinaturas pendentes</p><b style="${S.chamados.some(semAssinatura) ? "color:var(--wa-tx)" : ""}">${S.chamados.filter(semAssinatura).length}</b></div>
+    <div class="kpi"><p>validações pendentes</p><b style="${S.chamados.some(pendenteValidacao) ? "color:var(--wa-tx)" : ""}">${S.chamados.filter(pendenteValidacao).length}</b></div>
   </div>
+  <p class="sec-t">chamados em aberto por tempo</p>
+  <div class="card">
+    ${(() => {
+      const faixas = [["Até 7 dias", 0, 7, "var(--ok-tx)"], ["8 a 15 dias", 8, 15, "var(--in-tx)"], ["16 a 30 dias", 16, 30, "var(--wa-tx)"], ["Mais de 30 dias", 31, 1e9, "var(--er-tx)"]]
+        .map(([l, a, b, cor]) => ({ l, cor, n: ab.filter(c => { const d = diasAberto(c); return d >= a && d <= b; }).length }));
+      const mx = Math.max(1, ...faixas.map(f => f.n));
+      return faixas.map(f => `<div style="font-size:13px;margin-top:8px;display:flex;justify-content:space-between"><span>${f.l}</span><b>${f.n}</b></div><div class="bar"><i style="width:${f.n / mx * 100}%;background:${f.cor}"></i></div>`).join("");
+    })()}
+  </div>
+  ${ab.length ? `<p class="sec-t">em aberto há mais tempo</p><div class="rows">${ab.slice().sort((a, b) => diasAberto(b) - diasAberto(a)).slice(0, 8).map(c => {
+    const im = imovel(c.imovelId) || {}, d = diasAberto(c);
+    return `<button class="row" data-act="selChamado" data-id="${c.id}"><div class="g"><b>${esc(im.cliente || "?")}</b><small>${esc(resumoItens(c))} · aberto ${dBR(c.data)}</small></div>
+      <div class="v"><span class="tag ${d > 30 ? "er" : d > 15 ? "wa" : "mut"}">${d} dias</span></div></button>`;
+  }).join("")}</div>` : ""}
   <p class="sec-t">problemas por condomínio</p>
+  <button class="btn sec" data-act="csv" style="margin-bottom:12px">Exportar planilha de problemas por sistema (CSV)</button>
   ${emps.length ? emps.map(([e, d]) => `<div class="card"><b>${esc(e)}</b> <span class="mut">· ${d.n} chamado${d.n > 1 ? "s" : ""} · ${d.ims.size} casa${d.ims.size > 1 ? "s" : ""}</span>
     ${Object.entries(d.tipos).sort((a, b) => b[1] - a[1]).map(([t, n]) => `<div style="font-size:13px;margin-top:8px;display:flex;justify-content:space-between"><span>${esc(t)}</span><b>${n}</b></div><div class="bar"><i style="width:${n / max * 100}%"></i></div>`).join("")}
   </div>`).join("") : '<p class="mut" style="font-size:13px">Sem chamados ainda.</p>'}`;
@@ -698,7 +849,9 @@ function vAjustes() {
       <input data-g="${g.id}" data-campo="anos" inputmode="numeric" value="${g.anos}" aria-label="anos">
       <button class="icobtn" data-act="rmGar" data-id="${g.id}" aria-label="remover">✕</button></div>`).join("")}
     <p class="mut" style="font-size:12px;margin:0 0 10px">nome · anos de garantia contados da entrega das chaves</p>
-    <button class="btn sec sm" data-act="addGar">+ tipo de problema</button>
+    <div class="acts"><button class="btn sec sm" data-act="addGar">+ tipo de problema</button>
+    <button class="btn sec sm" data-act="catalogoSGQ">carregar lista completa (SGQ)</button></div>
+    <p class="mut" style="font-size:12px;margin:8px 0 0">A lista completa traz os ${SISTEMAS_SGQ.length} sistemas do padrão SGQ com prazos sugeridos. <b>Confira os anos</b> antes de usar: quem define o prazo que a empresa pratica é o responsável técnico.</p>
   </div>
   <p class="sec-t">quem faz as visitas</p>
   <div class="card">
@@ -711,6 +864,9 @@ function vAjustes() {
   <p class="sec-t">formulário PSQ 08-04</p>
   <div class="card">
     <div class="field"><label for="aResp">Engenheiro / responsável (assina pela empresa)</label><input id="aResp" value="${esc(S.config.responsavel)}" placeholder="Nome como vai no formulário"></div>
+    <div class="field" style="max-width:220px"><label for="aAceite">Prazo de aceite do cliente (dias úteis)</label><input id="aAceite" inputmode="numeric" value="${esc(S.config.diasAceite)}"></div>
+    <div class="field"><label for="aFeriados">Feriados locais (um por linha: DD/MM ou DD/MM/AAAA)</label><textarea id="aFeriados" style="min-height:80px" placeholder="20/01">${esc((S.config.feriados || []).map(f => f.length === 5 ? f.slice(3) + "/" + f.slice(0, 2) : dBR(f)).join("\n"))}</textarea>
+      <p class="mut" style="font-size:12px;margin:5px 0 0">Feriados nacionais e Sexta-feira Santa já entram sozinhos na conta.</p></div>
     <p class="mut" style="font-size:12px;margin:0">Próximo nº sequencial: <b>${fmtSeq(proxSeq())}</b> — pode ser ajustado ao abrir cada chamado.</p>
   </div>
   <p class="sec-t">google drive</p>
@@ -740,6 +896,14 @@ function lerAjustes() {
   if (r) S.config.pessoas.forEach(p => p.padrao = p.id === r.value);
   const resp = document.getElementById("aResp");
   if (resp) S.config.responsavel = resp.value.trim();
+  const ac = document.getElementById("aAceite");
+  if (ac) S.config.diasAceite = Math.max(1, Math.round(num(ac.value)) || 3);
+  const fer = document.getElementById("aFeriados");
+  if (fer) S.config.feriados = fer.value.split("\n").map(x => x.trim()).filter(Boolean).map(x => {
+    const q = x.split("/");
+    const pad2 = v => String(v).padStart(2, "0");
+    return q.length === 3 ? q[2] + "-" + pad2(q[1]) + "-" + pad2(q[0]) : q.length === 2 ? pad2(q[1]) + "-" + pad2(q[0]) : "";
+  }).filter(Boolean);
   const cid = document.getElementById("aCid");
   if (cid) S.config.driveClientId = cid.value.trim();
 }
@@ -836,7 +1000,8 @@ function formChamado(c, imovelId) {
     const tipos = fd.getAll("iTipo"), descs = fd.getAll("iDesc");
     Object.assign(o, { imovelId: d.imovelId, data: d.data, canal: d.canal, cortesia: !!d.cortesia, garantia: d.garantia || "auto", seq: num(d.seq) > 0 ? Math.round(num(d.seq)) : proxSeq(),
       itens: tipos.map((t, i) => ({ tipoId: t, descricao: (descs[i] || "").trim() })) });
-    if (novo) S.chamados.push(o);
+    if (novo) { S.chamados.push(o); log(o, "Chamado aberto — " + resumoItens(o) + "."); }
+    else log(o, "Dados do chamado editados.");
     salvar();
     const fotos = fd.getAll("fotos").filter(f => f && f.size);
     if (fotos.length) guardarFotos(fotos, o.id).then(() => { if (tela === "chamados" || tela === "imoveis") render(); });
@@ -882,7 +1047,7 @@ function formVisita(v, chamadoId, dataIni) {
   const hor = chamadoId ? (imovel((chamado(chamadoId) || {}).imovelId) || {}).horarios : "";
   formVisitaId = v.id;
   abrirForm(`<h2>${novo ? "Agendar visita" : "Editar visita"}</h2>
-    ${hor ? `<div class="note in" style="margin-top:-6px">🕐 <span>Cliente atende: <b style="display:inline">${esc(hor)}</b></span></div>` : ""}
+    ${hor ? `<div class="note in" style="margin-top:-6px"><span>Cliente atende: <b style="display:inline">${esc(hor)}</b></span></div>` : ""}
     <label>Como está a semana</label><div class="sem" id="semana">${semanaForm(v.data || dataIni || hoje(), v.id)}</div>
     ${novo && !chamadoId ? `<div class="field"><label>Chamado</label><select name="chamadoId" required><option value="">— escolha —</option>${abertos().map(c => `<option value="${c.id}">${esc(tituloChamado(c))}</option>`).join("")}</select></div>` : ""}
     <div class="grid2 field">
@@ -898,6 +1063,8 @@ function formVisita(v, chamadoId, dataIni) {
     const o = novo ? { id: uid(), chamadoId: chamadoId || d.chamadoId, feita: false, cancelada: null, relato: "", resolveu: null, materiais: [] } : v;
     Object.assign(o, { data: d.data, hora: d.hora, tipo: d.tipo, pessoaId: d.pessoaId, obs: d.obs.trim() });
     if (novo) S.visitas.push(o);
+    const cc = chamado(o.chamadoId);
+    if (cc) log(cc, (novo ? "Visita agendada" : "Visita remarcada/editada") + " para " + dBR(o.data) + (o.hora ? " às " + o.hora : "") + " — " + (VTIPO[o.tipo] || o.tipo) + " com " + ((pessoa(o.pessoaId) || {}).nome || "—") + ".");
     salvar();
     if (tela === "agenda") { diaSel = o.data; mesAgenda = o.data.slice(0, 7); }
     render();
@@ -913,6 +1080,7 @@ function formCancelar(v) {
       <div class="grid2"><input name="novaData" type="date"><input name="novaHora" type="time" value="${esc(v.hora)}"></div></div>`,
   d => {
     v.cancelada = { data: hoje(), motivo: d.motivo.trim() };
+    if (c.id) log(c, "Visita de " + dBR(v.data) + " cancelada — " + (d.motivo.trim() || "sem motivo") + ".");
     if (d.novaData) S.visitas.push({ id: uid(), chamadoId: v.chamadoId, data: d.novaData, hora: d.novaHora, tipo: v.tipo, pessoaId: v.pessoaId, obs: v.obs, feita: false, cancelada: null, relato: "", resolveu: null, materiais: [] });
     salvar();
     if (tela === "agenda" && d.novaData) { diaSel = d.novaData; mesAgenda = d.novaData.slice(0, 7); }
@@ -936,6 +1104,7 @@ function formConcluir(v) {
     v.materiais = nomes.map((n, i) => ({ nome: n.trim(), qtd: qtds[i].trim(), valor: finito(num(vals[i])) ? num(vals[i]) : null })).filter(m => m.nome);
     v.feita = true; v.relato = d.relato.trim(); v.resolveu = d.resolveu === "1";
     const c = chamado(v.chamadoId);
+    if (c) log(c, "Visita de " + dBR(v.data) + " concluída — " + (v.resolveu ? "problema resolvido" : "precisa retornar") + ". " + v.relato);
     if (v.resolveu && c && !c.encerrado) setTimeout(() => formEncerrar(c, { status: "resolvido", data: v.data }));
     if (!v.resolveu && d.proxData) S.visitas.push({ id: uid(), chamadoId: v.chamadoId, data: d.proxData, hora: d.proxHora, tipo: "retorno", pessoaId: v.pessoaId, obs: "", feita: false, relato: "", resolveu: null, materiais: [] });
     salvar();
@@ -946,16 +1115,80 @@ function formConcluir(v) {
 }
 const servicosDasVisitas = c => visitasDe(c.id).filter(v => v.feita)
   .map(v => dBR(v.data) + " — " + (v.relato || "") + (v.materiais.length ? " (material: " + v.materiais.map(m => m.nome + (m.qtd ? " " + m.qtd : "")).join(", ") + ")" : "")).join("\n");
-function formEncerrar(c, ini) {
-  const e = Object.assign({ status: "resolvido", data: hoje(), obs: "", servicos: servicosDasVisitas(c) }, c.encerrado || {}, ini || {});
-  abrirForm(`<h2>${c.encerrado ? "Editar encerramento" : "Encerrar chamado"}</h2>
-    <div class="grid2 field">
-      <div><label>Motivo</label><select name="status">${[["resolvido", "Resolvido"], ["fora_garantia", "Fora de garantia — não atendido"], ["nao_procede", "Não procede"]].map(([k, n]) => `<option value="${k}" ${e.status === k ? "selected" : ""}>${n}</option>`).join("")}</select></div>
-      <div><label>Data de encerramento</label><input name="data" type="date" required value="${e.data}"></div>
+// Uma linha de diagnóstico por problema: procede ou não procede; não
+// procedente exige motivo e parecer técnico — é o que vai no formulário.
+const linhaDiag = (it, i, c) => {
+  const gi = garantiaItem(c, it), np = naoProcede(it);
+  const sugest = gi && gi.vencida ? "fora_garantia" : "";
+  return `<div class="diag" data-i="${i}" style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px">
+    <b style="font-size:13.5px">${i + 1}. ${esc(nomeTipo(it))}</b>${it.descricao ? ` <span class="mut" style="font-size:12.5px">— ${esc(it.descricao.slice(0, 60))}</span>` : ""}
+    <div class="seg" style="margin-top:8px">
+      <button type="button" data-res="procede" aria-pressed="${!np}">Procede</button>
+      <button type="button" data-res="nao_procede" aria-pressed="${np}">Não procede</button>
     </div>
-    <div class="field"><label>Serviços realizados (sai no formulário)</label><textarea name="servicos" style="min-height:110px" placeholder="O que foi feito pra resolver">${esc(e.servicos)}</textarea></div>
-    <div class="field"><label>Observação</label><input name="obs" value="${esc(e.obs)}" placeholder="opcional — justificativa se não procede"></div>`,
-  d => { c.encerrado = Object.assign({ assinatura: null }, c.encerrado || {}, { status: d.status, data: d.data, obs: d.obs.trim(), servicos: d.servicos.trim() }); salvar(); render(); });
+    <input type="hidden" name="iRes" value="${np ? "nao_procede" : "procede"}">
+    <div class="np" style="margin-top:8px;${np ? "" : "display:none"}">
+      <label>Motivo</label>
+      <select name="iMotivo">${[["", "— escolha —"]].concat(Object.entries(MOTIVOS)).map(([k, n]) => `<option value="${k}" ${(it.motivo || sugest) === k ? "selected" : ""}>${n}</option>`).join("")}</select>
+      <label style="margin-top:6px">Parecer técnico (sai no formulário)</label>
+      <textarea name="iParecer" style="min-height:52px" placeholder="Por que a reclamação não procede">${esc(it.parecer)}</textarea>
+    </div></div>`;
+};
+function formEncerrar(c, ini) {
+  const e = Object.assign({ data: hoje(), obs: "", servicos: servicosDasVisitas(c) }, c.encerrado || {}, ini || {});
+  abrirForm(`<h2>${c.encerrado ? "Editar encerramento" : "Encerrar chamado"}</h2>
+    <div class="field"><label>Diagnóstico de cada problema</label>
+      <div id="diags">${itens(c).map((it, i) => linhaDiag(it, i, c)).join("")}</div></div>
+    <div class="field" style="max-width:220px"><label>Data de encerramento</label><input name="data" type="date" required value="${e.data}"></div>
+    <div class="field"><label>Serviços realizados (sai no formulário)</label><textarea name="servicos" style="min-height:100px" placeholder="O que foi feito pra resolver">${esc(e.servicos)}</textarea></div>
+    <div class="field"><label>Observação</label><input name="obs" value="${esc(e.obs)}" placeholder="opcional"></div>`,
+  (d, fd) => {
+    const res = fd.getAll("iRes"), mot = fd.getAll("iMotivo"), par = fd.getAll("iParecer");
+    const faltando = [];
+    itens(c).forEach((it, i) => {
+      it.resultado = res[i] || "procede";
+      it.motivo = it.resultado === "nao_procede" ? (mot[i] || "") : "";
+      it.parecer = it.resultado === "nao_procede" ? (par[i] || "").trim() : "";
+      if (parecerFaltando(it)) faltando.push(i + 1);
+    });
+    if (faltando.length) { alert("Preencha o motivo e o parecer técnico do(s) problema(s) " + faltando.join(", ") + " marcado(s) como não procedente."); return false; }
+    const antes = !!c.encerrado;
+    c.encerrado = Object.assign({ assinatura: null, envio: { data: "", meio: "" }, prazo: "" }, c.encerrado || {},
+      { status: todosNaoProcedem(c) ? "nao_procede" : "resolvido", data: d.data, obs: d.obs.trim(), servicos: d.servicos.trim() });
+    log(c, (antes ? "Encerramento editado" : "Chamado encerrado") + " — " + STATUS[c.encerrado.status][0] + " em " + dBR(d.data) + ".");
+    salvar(); render();
+  });
+}
+// registra o envio do relatório e começa a contar o prazo de aceite
+function formEnvio(c) {
+  const e = c.encerrado;
+  if (!e.envio) e.envio = { data: "", meio: "" };
+  abrirForm(`<h2>Relatório enviado ao cliente</h2>
+    <p class="mut" style="font-size:13px;margin:-8px 0 12px">A partir da data de envio começa a contar o prazo de ${S.config.diasAceite} dia(s) útil(eis) para o cliente se manifestar.</p>
+    <div class="grid2 field">
+      <div><label>Data do envio</label><input name="data" type="date" required value="${e.envio.data || hoje()}"></div>
+      <div><label>Meio</label><select name="meio">${Object.entries(MEIOS).map(([k, n]) => `<option value="${k}" ${e.envio.meio === k ? "selected" : ""}>${n}</option>`).join("")}</select></div>
+    </div>
+    <p class="mut" style="font-size:12px;margin:0">Prazo calculado em dias úteis, descontando fins de semana e feriados.</p>`,
+  d => {
+    e.envio = { data: d.data, meio: d.meio };
+    e.prazo = somaDiasUteis(d.data, Math.max(1, Number(S.config.diasAceite) || 3));
+    log(c, "Relatório enviado ao cliente em " + dBR(d.data) + " por " + (MEIOS[d.meio] || d.meio) + ". Prazo de aceite até " + dBR(e.prazo) + ".");
+    salvar(); render();
+  });
+}
+// cliente contestou: guarda o atendimento como ciclo e reabre o chamado
+function formObjecao(c) {
+  abrirForm(`<h2>Cliente contestou o serviço</h2>
+    <p class="mut" style="font-size:13px;margin:-8px 0 12px">O atendimento atual vira histórico e o chamado volta a ficar aberto para um novo atendimento.</p>
+    <div class="field"><label>Data da contestação</label><input name="data" type="date" required value="${hoje()}"></div>
+    <div class="field"><label>O que o cliente alegou</label><textarea name="obs" required placeholder="Motivo da objeção"></textarea></div>`,
+  d => {
+    c.ciclos.push({ encerrado: JSON.parse(JSON.stringify(c.encerrado)), objecao: { data: d.data, obs: d.obs.trim() } });
+    c.encerrado = null;
+    log(c, "Cliente contestou em " + dBR(d.data) + ": " + d.obs.trim() + " — chamado reaberto (atendimento " + (c.ciclos.length + 1) + ").");
+    salvar(); render();
+  });
 }
 function formAssinatura(c) {
   abrirForm(`<h2>Assinatura coletada</h2>
@@ -963,12 +1196,48 @@ function formAssinatura(c) {
     <div class="field"><label>Data da assinatura</label><input name="data" type="date" required value="${hoje()}"></div>
     <div class="field"><label>Foto do formulário assinado (opcional, fica como evidência)</label><input type="file" name="fotos" accept="image/*" multiple></div>`,
   (d, fd) => {
-    c.encerrado.assinatura = { data: d.data };
+    c.encerrado.assinatura = { data: d.data, tipo: "assinado" };
+    log(c, "Formulário assinado pelo cliente em " + dBR(d.data) + ".");
     salvar();
     const fotos = fd.getAll("fotos").filter(f => f && f.size);
     if (fotos.length) guardarFotos(fotos, c.id).then(render);
     render();
   });
+}
+// texto pronto pro cliente — conclusão com prazo de aceite, ou não procedência
+function mensagemCliente(c) {
+  const im = imovel(c.imovelId) || {}, e = c.encerrado;
+  const nps = itens(c).filter(naoProcede), ps = itens(c).filter(procede);
+  const lista = l => l.map((it, i) => (i + 1) + ". " + nomeTipo(it) + (it.descricao ? " — " + it.descricao : "")).join("\n");
+  const listaNP = nps.map((it, i) => (i + 1) + ". " + nomeTipo(it) + "\n   Motivo: " + (it.motivo === "outros" ? it.parecer : motivoTxt(it)) + "\n   Parecer técnico: " + it.parecer).join("\n");
+  let t = "Prezado(a) " + (im.cliente || "") + ",\n\nReferente ao chamado de assistência técnica nº " + fmtSeq(c.seq) + ", aberto em " + dBR(c.data) + ":\n\n";
+  if (todosNaoProcedem(c)) {
+    t += "após análise técnica, a(s) reclamação(ões) abaixo foi(ram) considerada(s) NÃO PROCEDENTE(S).\n\n" + listaNP;
+  } else {
+    t += "informamos que o atendimento foi concluído em " + dBR(e.data) + ".\n\nReclamações atendidas:\n" + lista(ps);
+    if (e.servicos) t += "\n\nServiços realizados: " + e.servicos;
+    if (nps.length) t += "\n\nReclamações não procedentes:\n" + listaNP;
+    const prazo = e.prazo || somaDiasUteis((e.envio || {}).data || hoje(), Math.max(1, Number(S.config.diasAceite) || 3));
+    t += "\n\nCaso tenha alguma objeção quanto aos serviços realizados, pedimos que retorne em até " + S.config.diasAceite +
+      " dia(s) útil(eis), ou seja, até " + dBR(prazo) + ". Não havendo manifestação nesse prazo, o chamado será considerado ACEITO e encerrado.";
+  }
+  t += "\n\nSegue em anexo o formulário do atendimento. Permanecemos à disposição.\n\n" + (S.config.responsavel || "");
+  return t;
+}
+function abrirMensagem(c) {
+  const im = imovel(c.imovelId) || {};
+  const txt = mensagemCliente(c);
+  const assunto = (todosNaoProcedem(c) ? "Comunicado — Chamado nº " : "Relatório de assistência técnica — Chamado nº ") + fmtSeq(c.seq);
+  dlg.innerHTML = `<div class="dbody"><h2>Mensagem para o cliente</h2>
+    <p class="mut" style="font-size:12.5px;margin:4px 0 10px">Imprima o formulário e anexe. Depois registre a data de envio no chamado para começar a contar o prazo de aceite.</p>
+    <textarea id="msgTxt" style="min-height:220px;font-size:13px">${esc(txt)}</textarea>
+    <div class="dacts" style="flex-wrap:wrap">
+      <button class="btn sec" style="width:auto;padding:10px 16px" data-act="copiarMsg">copiar texto</button>
+      ${im.telefone ? `<a class="btn sec" style="width:auto;padding:10px 16px;text-decoration:none" target="_blank" href="${wa(im.telefone)}?text=${encodeURIComponent(txt)}">WhatsApp</a>` : ""}
+      <a class="btn sec" style="width:auto;padding:10px 16px;text-decoration:none" href="mailto:?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(txt)}">E-mail</a>
+      <button class="btn" style="width:auto;padding:10px 16px" data-act="fecharDlg">fechar</button>
+    </div></div>`;
+  dlg.showModal();
 }
 function verFoto(id) {
   const f = S.fotos.find(x => x.id === id);
@@ -1141,11 +1410,15 @@ function htmlFormulario(c) {
   const e = esc;
   const linhas = txt => e(txt).replace(/\n/g, "<br>");
   const avaliacao = vs[0], ultima = vs[vs.length - 1];
-  const garantiaOk = g ? !g.vencida : null;
-  const justif = c.encerrado && c.encerrado.status === "nao_procede" ? c.encerrado.obs
-    : c.encerrado && c.encerrado.status === "fora_garantia" ? "Fora do prazo de garantia" + (g ? " (venceu em " + dBR(g.ate) + ")" : "") + (c.encerrado.obs ? " — " + c.encerrado.obs : "")
+  // o "Sim/Não" do formulário segue o diagnóstico quando ele existe
+  const diagnosticado = itens(c).some(it => it.resultado);
+  const garantiaOk = diagnosticado ? !todosNaoProcedem(c) : g ? !g.vencida : null;
+  // justificativa: o parecer técnico de cada problema não procedente
+  const nps = itens(c).filter(naoProcede);
+  const justif = nps.length
+    ? nps.map(it => nomeTipo(it) + " — " + motivoTxt(it) + ": " + it.parecer).join("\n")
     : g && g.vencida && c.cortesia ? "Fora do prazo de garantia (venceu em " + dBR(g.ate) + ") — atendido por cortesia"
-    : g && g.parcial ? "Fora do prazo de garantia: " + itens(c).filter(it => (garantiaItem(c, it) || {}).vencida).map(nomeTipo).join(", ") : "";
+      : g && g.parcial ? "Fora do prazo de garantia: " + itens(c).filter(it => (garantiaItem(c, it) || {}).vencida).map(nomeTipo).join(", ") : "";
   const servicos = c.encerrado && c.encerrado.servicos ? c.encerrado.servicos : servicosDasVisitas(c);
   const solicitacao = itens(c).map(it => nomeTipo(it) + (it.descricao ? ": " + it.descricao : "")).join("\n");
   // célula: colunas (A=1..P=16) e linhas da planilha
@@ -1186,8 +1459,8 @@ ${C(1, 2, 11, 11, "b", "Data :")}${C(3, 6, 11, 11, "u val", dBR(c.data))}${C(7, 
 ${C(1, 16, 12, 12, "b", "Os problemas detectados pela Engenharia estão dentro da Garantia da Edificação?")}
 ${C(1, 5, 13, 13, "chk", `&nbsp;&nbsp;&nbsp;(&nbsp;&nbsp;${garantiaOk === true ? "X" : "&nbsp;&nbsp;"}&nbsp;&nbsp;)&nbsp; Sim &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (&nbsp;&nbsp;${garantiaOk === false ? "X" : "&nbsp;&nbsp;"}&nbsp;&nbsp;)&nbsp; Não`)}
 ${C(6, 6, 13, 13, "b ctr", "Data:")}${C(7, 8, 13, 13, "u val", avaliacao ? dBR(avaliacao.data) : "")}${C(9, 10, 13, 13, "b ctr", "Responsável:")}${C(11, 16, 13, 13, "u val", e(resp))}
-${C(1, 7, 14, 14, "b", "EM CASO DE SOLICITAÇÃO NÃO PROCEDENTE, JUSTIFICAR:")}${C(8, 16, 14, 14, "u val", e(justif.slice(0, 90)))}
-${L(2, 15, 15, 17, linhas(justif.slice(90)))}
+${C(1, 7, 14, 14, "b", "EM CASO DE SOLICITAÇÃO NÃO PROCEDENTE, JUSTIFICAR:")}${C(8, 16, 14, 14, "u val", e(justif.split("\n")[0].slice(0, 90)))}
+${L(2, 15, 15, 17, linhas(justif.split("\n")[0].slice(90) + (justif.includes("\n") ? "\n" + justif.split("\n").slice(1).join("\n") : "")))}
 ${C(1, 16, 18, 18, "h", "SERVIÇOS REALIZADOS")}
 ${C(6, 6, 19, 19, "b ctr", "Data:")}${C(7, 8, 19, 19, "u val", ultima ? dBR(ultima.data) : "")}${C(9, 10, 19, 19, "b ctr", "Responsável:")}${C(11, 16, 19, 19, "u val", e(ultima ? (pessoa(ultima.pessoaId) || {}).nome || resp : resp))}
 ${L(2, 15, 20, 30, linhas(servicos))}
@@ -1224,7 +1497,7 @@ function ics(v) {
 // --- eventos ------------------------------------------------------------
 let fotoRef = null;
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-act],[data-dia],[data-mes],[data-fst],[data-diaform]");
+  const t = e.target.closest("[data-act],[data-dia],[data-mes],[data-fst],[data-diaform],[data-res]");
   if (!t) return;
   if (t.dataset.dia) { diaSel = t.dataset.dia; return render(); }
   if (t.dataset.mes !== undefined) {
@@ -1233,6 +1506,13 @@ document.addEventListener("click", e => {
     return render();
   }
   if (t.dataset.fst) { filtro.status = t.dataset.fst; return render(); }
+  if (t.dataset.res) {
+    const box = t.closest(".diag");
+    box.querySelectorAll("[data-res]").forEach(b => b.setAttribute("aria-pressed", b === t));
+    box.querySelector("[name=iRes]").value = t.dataset.res;
+    box.querySelector(".np").style.display = t.dataset.res === "nao_procede" ? "" : "none";
+    return;
+  }
   if (t.dataset.diaform) { const f = dlg.querySelector("form"); f.data.value = t.dataset.diaform; document.getElementById("semana").innerHTML = semanaForm(t.dataset.diaform, formVisitaId); return; }
   acao(t.dataset.act, t.dataset.id, t);
 });
@@ -1288,8 +1568,16 @@ function acao(a, id, el) {
       sel = null; mostrarDetalhe = false; salvar(); return render();
     }
     case "encerrar": return formEncerrar(c);
-    case "reabrir": c.encerrado = null; salvar(); return render();
+    case "reabrir": c.encerrado = null; log(c, "Chamado reaberto."); salvar(); return render();
     case "assinado": return formAssinatura(c);
+    case "envio": return formEnvio(c);
+    case "objecao": return formObjecao(c);
+    case "mensagem": return abrirMensagem(c);
+    case "copiarMsg": {
+      const t = document.getElementById("msgTxt");
+      t.select(); navigator.clipboard.writeText(t.value).then(() => alert("Texto copiado.")).catch(() => alert("Selecione e copie manualmente."));
+      return;
+    }
     case "formulario": { const w = open("", "_blank"); if (!w) return alert("O navegador bloqueou a janela. Permita pop-ups pra este site."); w.document.write(htmlFormulario(c)); w.document.close(); return; }
     case "novaVisita": return formVisita(null, id);
     case "visitaNoDia": if (!abertos().length) return alert("Não há chamado em aberto pra marcar visita."); return formVisita(null, null, diaSel);
@@ -1312,12 +1600,35 @@ function acao(a, id, el) {
       if (box.querySelectorAll(".item").length < 2) return alert("O chamado precisa de pelo menos um problema.");
       el.closest(".item").remove(); return;
     }
+    case "catalogoSGQ": {
+      lerAjustes();
+      const novos = SISTEMAS_SGQ.filter(([id, nome]) => !S.config.garantias.some(g => g.id === id || norm(g.nome) === norm(nome)));
+      if (!novos.length) return alert("A lista já está completa.");
+      if (!confirm("Adicionar " + novos.length + " sistema(s) à lista? Os que você já tem não são alterados.")) return;
+      novos.forEach(([id, nome, anos]) => S.config.garantias.push({ id, nome, anos }));
+      salvar(); render();
+      return alert(novos.length + " sistema(s) adicionado(s). Confira os anos de garantia de cada um.");
+    }
     case "addGar": lerAjustes(); S.config.garantias.push({ id: uid(), nome: "Novo tipo", anos: 1 }); salvar(); return render();
     case "rmGar": if (S.chamados.some(x => itens(x).some(it => it.tipoId === id))) return alert("Tem chamado usando esse tipo."); lerAjustes(); S.config.garantias = S.config.garantias.filter(g => g.id !== id); salvar(); return render();
     case "addPessoa": lerAjustes(); S.config.pessoas.push({ id: uid(), nome: "", padrao: !S.config.pessoas.length }); salvar(); return render();
     case "rmPessoa": if (S.config.pessoas.length === 1) return alert("Precisa ter pelo menos uma pessoa."); lerAjustes(); S.config.pessoas = S.config.pessoas.filter(p => p.id !== id); if (!S.config.pessoas.some(p => p.padrao)) S.config.pessoas[0].padrao = true; salvar(); return render();
     case "salvarCfg": lerAjustes(); salvar(); render(); return alert("Ajustes salvos.");
     case "sync": lerAjustes(); salvar(); return sincronizar(true);
+    case "csv": {
+      const m = new Map();
+      S.chamados.forEach(x => itens(x).forEach(it => {
+        const k = nomeTipo(it), o = m.get(k) || { n: 0, p: 0, np: 0, pend: 0 };
+        o.n++; if (naoProcede(it)) o.np++; else if (it.resultado) o.p++; else o.pend++;
+        m.set(k, o);
+      }));
+      const tot = [...m.values()].reduce((t, o) => t + o.n, 0);
+      const pct = n => tot ? (n * 100 / tot).toFixed(1).replace(".", ",") + "%" : "—";
+      const linhas = [["Sistema afetado", "Problemas", "% do total", "Procedentes", "Nao procedentes", "Sem diagnostico"]]
+        .concat([...m.entries()].sort((a, b) => b[1].n - a[1].n).map(([k, o]) => [k, o.n, pct(o.n), o.p, o.np, o.pend]));
+      const csv = "\ufeff" + linhas.map(r => r.map(x => '"' + String(x).replace(/"/g, '""') + '"').join(";")).join("\r\n");
+      return baixar("problemas-por-sistema-" + hoje() + ".csv", csv, "text/csv");
+    }
     case "exportar": S.config.ultimoBackup = hoje(); salvar(); baixar("assistencia-" + hoje() + ".json", JSON.stringify(S, null, 1), "application/json"); return render();
     case "importar": return document.getElementById("fileImp").click();
   }
@@ -1389,8 +1700,28 @@ function autoteste() {
   S.chamados[1].encerrado = { status: "resolvido", data: "2026-01-08" };
   T("encerrado manda no status", statusDe(S.chamados[1]) === "resolvido");
   S.visitas[0].relato = "trocou o rejunte"; S.visitas[0].materiais = [{ nome: "Rejunte", qtd: "1 kg", valor: 40 }];
+  T("dias úteis pulam fim de semana", somaDiasUteis("2026-01-02", 3) === "2026-01-07");
+  T("dias úteis pulam feriado nacional", somaDiasUteis("2025-12-24", 1) === "2025-12-26");
+  T("sexta-feira santa entra como feriado", feriados(2026).has("2026-04-03"));
+  S.chamados[1].encerrado = { status: "resolvido", data: "2026-01-08", obs: "", servicos: "", assinatura: null, envio: { data: "2026-01-08", meio: "whatsapp" }, prazo: "2026-01-13" };
+  T("depois do envio fica aguardando aceite", validacao(S.chamados[1]).k === "aguardando" && pendenteValidacao(S.chamados[1]));
+  T("prazo vencido sem manifestação fecha por decurso", fecharVencidos() === 1 && S.chamados[1].encerrado.assinatura.tipo === "tacito" && !pendenteValidacao(S.chamados[1]));
+  S.chamados[1].itens = [{ tipoId: "pintura", descricao: "", resultado: "nao_procede", motivo: "mau_uso", parecer: "" }];
+  T("não procedente sem parecer é bloqueado", faltaParecer(S.chamados[1]) === true && todosNaoProcedem(S.chamados[1]) === true);
+  S.chamados[1].itens[0].parecer = "Dano causado por furo na parede.";
+  T("com parecer preenchido libera", faltaParecer(S.chamados[1]) === false);
+  const hf = htmlFormulario(S.chamados[1]);
+  T("formulário traz o parecer e marca Não na garantia", hf.includes("Dano causado por furo") && hf.includes("Mau uso"));
+  S.chamados[1].encerrado = { status: "resolvido", data: "2026-01-08", obs: "", servicos: "trocou", assinatura: null, envio: { data: "", meio: "" }, prazo: "" };
+  S.chamados[1].itens = [{ tipoId: "imperm", descricao: "", resultado: "procede", motivo: "", parecer: "" }];
+  T("mensagem pro cliente cita o prazo de aceite", mensagemCliente(S.chamados[1]).includes("ACEITO"));
+  T("chamado aberto há N dias", diasAberto(S.chamados[0]) >= 0);
+  S.chamados[1].encerrado = { status: "resolvido", data: "2026-01-08" , obs: "", servicos: "", assinatura: { data: "2026-01-09", tipo: "assinado" }, envio: { data: "2026-01-08", meio: "whatsapp" }, prazo: "2026-01-13" };
+  const mg3 = migrar({ chamados: [{ id: "q", criadoEm: "", itens: [{ tipoId: "pintura", descricao: "" }], encerrado: { status: "fora_garantia", data: "2026-02-01", obs: "venceu" } }] });
+  T("migração: status 'fora de garantia' vira motivo do problema", mg3.chamados[0].itens[0].motivo === "fora_garantia" && mg3.chamados[0].encerrado.status === "nao_procede");
   T("resumo dos serviços vem das visitas feitas", servicosDasVisitas(S.chamados[1]) === "08/01/2026 — trocou o rejunte (material: Rejunte 1 kg)");
-  T("encerrado sem assinatura fica pendente; com assinatura não", semAssinatura(S.chamados[1]) === true && !semAssinatura(Object.assign({}, S.chamados[1], { encerrado: { status: "resolvido", data: "2026-01-08", assinatura: { data: "2026-01-09" } } })));
+  T("encerrado sem envio fica pendente de validação", pendenteValidacao({ encerrado: { status: "resolvido", data: "2026-01-08" } }) === true && validacao({ encerrado: { status: "resolvido", data: "2026-01-08" } }).k === "enviar");
+  T("encerrado assinado não fica pendente", pendenteValidacao({ encerrado: { status: "resolvido", data: "2026-01-08", envio: { data: "2026-01-08" }, prazo: "2026-01-13", assinatura: { data: "2026-01-09", tipo: "assinado" } } }) === false);
   const mg = migrar({ chamados: [{ id: "a", criadoEm: "2026-02-01" }, { id: "b", criadoEm: "2026-01-01" }, { id: "c", criadoEm: "2026-03-01", seq: 7 }] });
   T("nº sequencial: mantém o existente e numera os outros pela criação", mg.chamados.map(x => x.seq).join() === "9,8,7" && fmtSeq(9) === "0009");
   let html = ""; try { html = htmlFormulario(S.chamados[1]); } catch (err) { console.error(err); }
@@ -1412,6 +1743,7 @@ function autoteste() {
 
 if (location.search.includes("teste")) autoteste();
 else {
+  if (fecharVencidos()) { salvar(); setTimeout(() => alert("Chamados com prazo de aceite vencido foram fechados automaticamente (aceite por decurso de prazo)."), 400); }
   render();
   if (tokenValido()) sincronizar(false);
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => { });

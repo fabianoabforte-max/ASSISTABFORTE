@@ -257,7 +257,7 @@ dialog .big{max-width:100%;max-height:75vh;display:block;margin:0 auto;border-ra
 <script>
 "use strict";
 const KEY = "assist_v1";
-const VERSAO = "2026-11-05e";
+const VERSAO = "2026-11-05f";
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 // Prazos do Manual do Proprietário do empreendimento (tabela da ABNT NBR
@@ -2023,12 +2023,7 @@ function acao(a, id, el) {
     }
     case "exportar": S.config.ultimoBackup = hoje(); salvar(); baixar("assistencia-" + hoje() + ".json", JSON.stringify(S, null, 1), "application/json"); return render();
     case "importar": return document.getElementById("fileImp").click();
-    case "atualizar": {
-      const limpar = ("caches" in window ? caches.keys().then(ks => Promise.all(ks.map(k => caches.delete(k)))) : Promise.resolve())
-        .then(() => navigator.serviceWorker ? navigator.serviceWorker.getRegistrations().then(rs => Promise.all(rs.map(r => r.update()))) : null);
-      limpar.catch(() => { }).then(() => location.reload(true));
-      return;
-    }
+    case "atualizar": limparCache().catch(() => { }).then(() => location.replace(enderecoNovo())); return;
   }
 }
 document.addEventListener("input", e => {
@@ -2189,8 +2184,40 @@ function autoteste() {
     ok.join("\n") + "\n\n" + (ok.some(x => x.startsWith("FALHA")) ? "TEM FALHA" : "tudo passou") + "</pre>";
 }
 
+// O navegador (ou um service worker antigo) às vezes continua servindo uma
+// cópia velha da página, e aí nenhuma correção chega. Em vez de depender de
+// Ctrl+Shift+R, o app compara a versão que está rodando com a que está no
+// servidor e se troca sozinho.
+const enderecoNovo = () => location.pathname + "?atual=" + Date.now();
+async function limparCache() {
+  if (navigator.serviceWorker) {
+    const rs = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(rs.map(r => r.unregister()));
+  }
+  if (window.caches) {
+    const ks = await caches.keys();
+    await Promise.all(ks.map(k => caches.delete(k)));
+  }
+}
+async function conferirAtualizacao() {
+  try {
+    const u = enderecoNovo();
+    const t = await (await fetch(u, { cache: "no-store" })).text();
+    const m = t.match(/const VERSAO = "([^"]+)"/);
+    if (!m || m[1] === VERSAO) return;
+    // ponytail: uma troca por aba; se a antiga voltar, é o navegador insistindo
+    if (sessionStorage.getItem("trocando") === m[1]) {
+      return mostrarLogin("Existe uma versão nova (" + m[1] + "), mas o navegador continua abrindo a antiga (" + VERSAO + "). Clique no ícone à esquerda do endereço, escolha “Cookies e dados do site” e depois “Excluir dados”.");
+    }
+    sessionStorage.setItem("trocando", m[1]);
+    await limparCache();
+    location.replace(u);
+  } catch (e) { }
+}
+
 if (location.search.includes("teste")) autoteste();
 else {
+  conferirAtualizacao();
   if (fecharVencidos()) { salvar(); setTimeout(() => alert("Chamados com prazo de aceite vencido foram fechados automaticamente (aceite por decurso de prazo)."), 400); }
   // enquanto não sabemos se há sessão, não mostra nada do app
   document.body.classList.add("travado");

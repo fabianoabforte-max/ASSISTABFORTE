@@ -25,6 +25,8 @@ const guardar = (req, res) => {
 
 self.addEventListener("fetch", e => {
   if (e.request.method !== "GET" || new URL(e.request.url).origin !== location.origin) return;
+  // a conferência de versão tem que falar com o servidor, e sem deixar lixo no cache
+  if (new URL(e.request.url).searchParams.has("atual")) return;
   const pagina = e.request.mode === "navigate" || e.request.destination === "document";
   e.respondWith(
     pagina

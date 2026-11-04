@@ -257,7 +257,7 @@ dialog .big{max-width:100%;max-height:75vh;display:block;margin:0 auto;border-ra
 <script>
 "use strict";
 const KEY = "assist_v1";
-const VERSAO = "2026-11-05f";
+const VERSAO = "2026-11-05g";
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 // Prazos do Manual do Proprietário do empreendimento (tabela da ABNT NBR
@@ -1587,7 +1587,6 @@ async function entrar(email, senha) {
   const c = cliente(); if (!c) throw new Error("biblioteca da nuvem não carregou (sem internet?)");
   const { data, error } = await c.auth.signInWithPassword({ email: email.trim(), password: senha });
   if (error) throw new Error(explicaErro(error));
-  await lerPerfil();
   S.meta.sync = Object.assign({ ultimo: "" }, S.meta.sync, { ligado: true });
   salvar();
   return data;

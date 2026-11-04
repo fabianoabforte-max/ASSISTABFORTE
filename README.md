@@ -1,9 +1,10 @@
 # Assistência Técnica
 
 App para a assistência técnica pós-obra: chamados de garantia, visitas e agenda.
-Arquivo único, funciona offline, instala no celular e no PC. Os dados ficam no
-aparelho e, para quem entra com e-mail e senha, sincronizam com o banco da
-empresa (Supabase).
+Arquivo único, instala no celular e no PC. **Entra com e-mail e senha**: sem
+conta não se usa o sistema. Depois do primeiro login o aparelho guarda a
+sessão, então o app abre e funciona offline nas visitas; sincroniza com o
+banco da empresa (Supabase) quando há sinal.
 
 Endereço: https://fabianoabforte-max.github.io/ASSISTABFORTE/
 

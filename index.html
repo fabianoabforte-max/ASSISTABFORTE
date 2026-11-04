@@ -162,6 +162,16 @@ nav.bottom{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-
 nav.bottom button{flex:1;background:none;border:0;padding:9px 0 11px;font-size:11px;color:var(--tx3);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px}
 nav.bottom button svg,aside button svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 nav.bottom button[aria-current=page]{color:var(--tx);font-weight:600}
+#login{position:fixed;inset:0;z-index:50;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px}
+#login .box{width:100%;max-width:380px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px}
+#login h1{font-size:20px;line-height:1.2}
+#login p.sub{margin:4px 0 20px;font-size:13px;color:var(--tx2)}
+#login .marca{display:flex;align-items:center;gap:10px;margin-bottom:2px}
+#login .marca svg{width:30px;height:30px;flex:none}
+#login .err{background:var(--er-bg);color:var(--er-tx);border-radius:9px;padding:9px 11px;font-size:13px;margin-bottom:12px}
+#login .rod{font-size:12px;color:var(--tx3);margin:16px 0 0;text-align:center}
+body.travado{overflow:hidden}
+body.travado .app,body.travado nav.bottom{display:none}
 dialog{border:0;border-radius:14px;padding:0;max-width:560px;width:calc(100% - 24px);background:var(--card);color:var(--tx);box-shadow:0 10px 40px rgba(0,0,0,.3)}
 dialog::backdrop{background:rgba(0,0,0,.45)}
 dialog form,dialog .dbody{padding:18px}
@@ -224,6 +234,20 @@ dialog .big{max-width:100%;max-height:75vh;display:block;margin:0 auto;border-ra
   <button data-tab="painel"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>painel</button>
   <button data-tab="ajustes"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>ajustes</button>
 </nav>
+<div id="login" hidden>
+  <div class="box">
+    <div class="marca">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8M5 10v10h14V10"/><path d="M9.5 13.5l1.8 1.8a1.6 1.6 0 0 0 2.2 0l.6-.6"/></svg>
+      <h1>Assistência Técnica</h1>
+    </div>
+    <p class="sub">Pós-obra · garantia</p>
+    <div class="err hide" id="loginErr"></div>
+    <div class="field"><label for="lEmail">E-mail</label><input id="lEmail" type="email" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="voce@empresa.com"></div>
+    <div class="field"><label for="lSenha">Senha</label><input id="lSenha" type="password" autocomplete="current-password"></div>
+    <button class="btn" id="btnEntrar">Entrar</button>
+    <p class="rod">Não tem acesso? Fale com o administrador do sistema.</p>
+  </div>
+</div>
 <dialog id="dlg"></dialog>
 <input type="file" id="fileImp" accept=".json" hidden>
 <input type="file" id="fileFoto" accept="image/*" multiple hidden>
@@ -231,7 +255,7 @@ dialog .big{max-width:100%;max-height:75vh;display:block;margin:0 auto;border-ra
 <script>
 "use strict";
 const KEY = "assist_v1";
-const VERSAO = "2026-11-05";
+const VERSAO = "2026-11-05b";
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 // Prazos do Manual do Proprietário do empreendimento (tabela da ABNT NBR
@@ -989,17 +1013,13 @@ function vAjustes() {
         <dt>Perfil</dt><dd>${{ admin: "Administrador — vê e altera tudo", registrador: "Registrador — altera as obras liberadas", leitor: "Leitor — só visualiza" }[NUVEM.papel] || esc(NUVEM.papel)}</dd>
         <dt>Estado</dt><dd>${{ pronto: "conectado, ainda não sincronizou", sync: "sincronizado" + (NUVEM.quando ? " às " + NUVEM.quando : ""), busy: "sincronizando…", err: "erro — " + esc(NUVEM.erro), off: "desconectado" }[NUVEM.estado] || "—"}</dd>
       </dl>
+      ${NUVEM.papel === "leitor" && !S.obras.length ? '<div class="note wa" style="margin-top:10px"><span>Sua conta ainda não tem nenhuma obra liberada. Peça ao administrador para liberar o acesso.</span></div>' : ""}
+      ${NUVEM.papel === "sem perfil" ? '<div class="note er" style="margin-top:10px"><span>Sua conta não tem perfil no sistema. Fale com o administrador.</span></div>' : ""}
       <div class="acts" style="margin-top:10px">
         <button class="btn sm" data-act="sync">Sincronizar agora</button>
         <button class="btn sec sm" data-act="sairNuvem">Sair da conta</button>
       </div>`
-    : `
-      <p class="mut" style="font-size:12.5px;margin:0 0 10px">Sem entrar, o app funciona normal e guarda tudo neste aparelho. Entrando, os dados passam a ser os mesmos no computador e no celular, e quem a empresa liberar consegue acompanhar.</p>
-      <div class="grid2 field">
-        <div><label for="aEmail">E-mail</label><input id="aEmail" type="email" autocomplete="username" placeholder="voce@empresa.com"></div>
-        <div><label for="aSenha">Senha</label><input id="aSenha" type="password" autocomplete="current-password"></div>
-      </div>
-      <button class="btn" data-act="entrarNuvem">Entrar</button>`}
+    : '<p class="mut" style="font-size:12.5px;margin:0">Sessão encerrada. Recarregue a página para entrar de novo.</p>'}
   </div>
   <button class="btn" data-act="salvarCfg">Salvar ajustes</button>
   <p class="sec-t">backup</p>
@@ -1563,7 +1583,8 @@ async function sair() {
   const c = cliente(); if (c) await c.auth.signOut().catch(() => { });
   NUVEM.estado = "off"; NUVEM.email = ""; NUVEM.papel = "";
   if (S.meta.sync) S.meta.sync.ligado = false;
-  salvar(); render();
+  salvar();
+  location.reload();
 }
 async function lerPerfil() {
   const c = cliente(); if (!c) return null;
@@ -1759,6 +1780,57 @@ function ics(v) {
     "END:VEVENT", "END:VCALENDAR"].join("\r\n");
 }
 
+// --- porta de entrada ---------------------------------------------------
+// Sem conta não entra. Depois do primeiro login o aparelho guarda a sessão,
+// então nas visitas seguintes o app abre mesmo sem sinal.
+const telaLogin = document.getElementById("login");
+function mostrarLogin(msg) {
+  document.body.classList.add("travado");
+  telaLogin.hidden = false;
+  const e = document.getElementById("loginErr");
+  e.textContent = msg || ""; e.classList.toggle("hide", !msg);
+  const el = document.getElementById("lEmail");
+  if (el && matchMedia("(min-width:900px)").matches) el.focus();
+}
+function abrirApp() {
+  telaLogin.hidden = true;
+  document.body.classList.remove("travado");
+  render();
+}
+// Trocou de pessoa no mesmo aparelho: os dados do anterior não podem ficar.
+function conferirDono(uid) {
+  if (S.meta.dono && S.meta.dono !== uid) {
+    S = PADRAO();
+    S.meta.dono = uid;
+    localStorage.setItem(KEY, JSON.stringify(S));
+    indexedDB.deleteDatabase("assist");
+    Object.keys(urlFoto).forEach(k => delete urlFoto[k]);
+    return true;
+  }
+  S.meta.dono = uid;
+  return false;
+}
+async function tentarEntrar() {
+  const em = document.getElementById("lEmail").value.trim();
+  const se = document.getElementById("lSenha").value;
+  if (!em || !se) return mostrarLogin("Preencha e-mail e senha.");
+  const b = document.getElementById("btnEntrar");
+  b.disabled = true; b.textContent = "Entrando…";
+  try {
+    const { user } = await entrar(em, se);
+    const trocou = conferirDono(user.id);
+    salvar();
+    abrirApp();
+    await sincronizar(false);
+    if (trocou) alert("Este aparelho estava com os dados de outra conta. Foram limpos e os seus foram baixados.");
+  } catch (e) {
+    mostrarLogin(e.message);
+  }
+  b.disabled = false; b.textContent = "Entrar";
+}
+document.getElementById("btnEntrar").onclick = tentarEntrar;
+document.getElementById("lSenha").addEventListener("keydown", e => { if (e.key === "Enter") tentarEntrar(); });
+
 // --- eventos ------------------------------------------------------------
 let fotoRef = null;
 document.addEventListener("click", e => {
@@ -1903,13 +1975,7 @@ function acao(a, id, el) {
     case "rmPessoa": if (S.config.pessoas.length === 1) return alert("Precisa ter pelo menos uma pessoa."); lerAjustes(); S.config.pessoas = S.config.pessoas.filter(p => p.id !== id); if (!S.config.pessoas.some(p => p.padrao)) S.config.pessoas[0].padrao = true; salvar(); return render();
     case "salvarCfg": lerAjustes(); salvar(); render(); return alert("Ajustes salvos.");
     case "sync": lerAjustes(); salvar(); return sincronizar(true);
-    case "entrarNuvem": {
-      const em = document.getElementById("aEmail").value, se = document.getElementById("aSenha").value;
-      if (!em || !se) return alert("Preencha e-mail e senha.");
-      lerAjustes(); salvar();
-      return entrar(em, se).then(() => { render(); return sincronizar(true); }).catch(e => alert("Não entrou: " + e.message));
-    }
-    case "sairNuvem": if (confirm("Sair da conta? Os dados continuam neste aparelho.")) sair(); return;
+    case "sairNuvem": if (confirm("Sair da conta?")) sair(); return;
     case "csv": {
       const m = new Map();
       S.chamados.forEach(x => itens(x).forEach(it => {
@@ -2095,8 +2161,14 @@ function autoteste() {
 if (location.search.includes("teste")) autoteste();
 else {
   if (fecharVencidos()) { salvar(); setTimeout(() => alert("Chamados com prazo de aceite vencido foram fechados automaticamente (aceite por decurso de prazo)."), 400); }
-  render();
-  lerPerfil().then(sess => { if (sess) { cabecalho(); sincronizar(false); } });
+  // enquanto não sabemos se há sessão, não mostra nada do app
+  document.body.classList.add("travado");
+  lerPerfil().then(sess => {
+    if (!sess) return mostrarLogin();
+    conferirDono(sess.user.id); salvar();
+    abrirApp();
+    sincronizar(false);
+  }).catch(() => mostrarLogin("Não deu para falar com o servidor. Verifique a internet."));
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => { });
 }
 </script>

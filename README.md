@@ -5,7 +5,7 @@ Arquivo único, funciona offline, instala no celular e no PC. Os dados ficam no
 navegador e, se você conectar, no seu Google Drive (arquivo `assistencia.json` +
 pasta com as fotos, dentro de uma pasta "Assistência Técnica").
 
-Endereço: https://fabianofca26-creator.github.io/assist-ncia/
+Endereço: https://fabianoabforte-max.github.io/ASSISTABFORTE/
 
 ## Conectar ao Google Drive (uma vez só)
 
@@ -29,7 +29,7 @@ acesso ao Drive. É grátis e leva uns 10 minutos.
    - Tipo: **Aplicativo da Web**.
    - Nome: `assistencia`.
    - **Origens JavaScript autorizadas** → Adicionar URI:
-     `https://fabianofca26-creator.github.io`
+     `https://fabianoabforte-max.github.io`
    - Criar. Copie o **ID do cliente** (termina em `.apps.googleusercontent.com`).
 6. No app: **Ajustes → Google Drive** → cole o Client ID → **Salvar ajustes**
    → **Conectar e sincronizar**. Autorize na janela do Google.

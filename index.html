@@ -255,7 +255,7 @@ dialog .big{max-width:100%;max-height:75vh;display:block;margin:0 auto;border-ra
 <script>
 "use strict";
 const KEY = "assist_v1";
-const VERSAO = "2026-11-05c";
+const VERSAO = "2026-11-05d";
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 // Prazos do Manual do Proprietário do empreendimento (tabela da ABNT NBR
@@ -1591,7 +1591,7 @@ async function entrar(email, senha) {
   return data;
 }
 async function sair() {
-  const c = cliente(); if (c) await c.auth.signOut().catch(() => { });
+  const c = cliente(); if (c) await c.auth.signOut({ scope: "local" }).catch(() => { });
   NUVEM.estado = "off"; NUVEM.email = ""; NUVEM.papel = "";
   if (S.meta.sync) S.meta.sync.ligado = false;
   salvar();
@@ -1613,8 +1613,10 @@ async function sincronizar(interativo) {
   const c = cliente();
   if (!c) { if (interativo) alert("A biblioteca da nuvem não carregou. Verifique a internet."); return; }
   if (NUVEM.ocupado) return;
-  const sess = await lerPerfil();
-  if (!sess) { if (interativo) alert("Entre com e-mail e senha nos Ajustes."); return; }
+  let sess = null;
+  try { sess = await lerPerfil(); }
+  catch (e) { NUVEM.estado = "err"; NUVEM.erro = explicaErro(e); if (interativo) alert("Não sincronizou: " + NUVEM.erro); return; }
+  if (!sess) { if (interativo) alert("Sua sessão expirou. Recarregue a página e entre de novo."); return; }
   NUVEM.ocupado = true; NUVEM.estado = "busy"; cabecalho();
   const desde = (S.meta.sync && S.meta.sync.ultimo) || "1970-01-01T00:00:00Z";
   let maior = desde, baixados = 0, subidos = 0;
@@ -1827,17 +1829,20 @@ async function tentarEntrar() {
   if (!em || !se) return mostrarLogin("Preencha e-mail e senha.");
   const b = document.getElementById("btnEntrar");
   b.disabled = true; b.textContent = "Entrando…";
+  let dados = null;
   try {
-    const { user } = await entrar(em, se);
-    const trocou = conferirDono(user.id);
-    salvar();
-    abrirApp();
-    await sincronizar(false);
-    if (trocou) alert("Este aparelho estava com os dados de outra conta. Foram limpos e os seus foram baixados.");
+    dados = await entrar(em, se);
   } catch (e) {
-    mostrarLogin(e.message);
+    mostrarLogin(explicaErro(e));
   }
   b.disabled = false; b.textContent = "Entrar";
+  if (!dados) return;
+  const trocou = conferirDono(dados.user.id);
+  salvar();
+  abrirApp();
+  sincronizar(false).then(() => {
+    if (trocou) alert("Este aparelho estava com os dados de outra conta. Foram limpos e os seus foram baixados.");
+  });
 }
 document.getElementById("btnEntrar").onclick = tentarEntrar;
 document.getElementById("lSenha").addEventListener("keydown", e => { if (e.key === "Enter") tentarEntrar(); });
@@ -2174,12 +2179,18 @@ else {
   if (fecharVencidos()) { salvar(); setTimeout(() => alert("Chamados com prazo de aceite vencido foram fechados automaticamente (aceite por decurso de prazo)."), 400); }
   // enquanto não sabemos se há sessão, não mostra nada do app
   document.body.classList.add("travado");
-  lerPerfil().then(sess => {
-    if (!sess) return mostrarLogin();
+  (async () => {
+    const c = cliente();
+    let sess = null;
+    try { sess = c ? (await c.auth.getSession()).data.session : null; }
+    catch (e) { sess = null; }
+    if (!sess) return mostrarLogin(c ? "" : "A biblioteca da nuvem não carregou. Verifique a internet e recarregue.");
+    // sessão guardada neste aparelho: abre mesmo offline
     conferirDono(sess.user.id); salvar();
     abrirApp();
+    lerPerfil().catch(() => { });
     sincronizar(false);
-  }).catch(() => mostrarLogin("Não deu para falar com o servidor. Verifique a internet."));
+  })();
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => { });
 }
 </script>

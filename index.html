@@ -7,7 +7,8 @@
 <title>Assistência Técnica</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.58.0/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.58.0/dist/umd/supabase.js"
+  onerror="var f=document.createElement('script');f.src='https://unpkg.com/@supabase/supabase-js@2.58.0/dist/umd/supabase.js';document.head.appendChild(f)"></script>
 <style>
 :root{
   --bg:#f4f5f7; --card:#fff; --line:#e3e5ea; --line2:#cfd3db;
@@ -246,6 +247,7 @@ dialog .big{max-width:100%;max-height:75vh;display:block;margin:0 auto;border-ra
     <div class="field"><label for="lSenha">Senha</label><input id="lSenha" type="password" autocomplete="current-password"></div>
     <button class="btn" id="btnEntrar">Entrar</button>
     <p class="rod">Não tem acesso? Fale com o administrador do sistema.</p>
+    <p class="rod" id="loginDiag" style="margin-top:6px"></p>
   </div>
 </div>
 <dialog id="dlg"></dialog>
@@ -255,7 +257,7 @@ dialog .big{max-width:100%;max-height:75vh;display:block;margin:0 auto;border-ra
 <script>
 "use strict";
 const KEY = "assist_v1";
-const VERSAO = "2026-11-05d";
+const VERSAO = "2026-11-05e";
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 // Prazos do Manual do Proprietário do empreendimento (tabela da ABNT NBR
@@ -1802,6 +1804,14 @@ function mostrarLogin(msg) {
   telaLogin.hidden = false;
   const e = document.getElementById("loginErr");
   e.textContent = msg || ""; e.classList.toggle("hide", !msg);
+  const d = document.getElementById("loginDiag");
+  const ok = !!cliente();
+  if (d) {
+    d.textContent = "versão " + VERSAO + " · " + (ok ? "servidor acessível" : "SEM conexão com a nuvem");
+    d.style.color = ok ? "" : "var(--er-tx)";
+  }
+  const b = document.getElementById("btnEntrar");
+  if (b) b.disabled = !ok;
   const el = document.getElementById("lEmail");
   if (el && matchMedia("(min-width:900px)").matches) el.focus();
 }
@@ -1823,16 +1833,21 @@ function conferirDono(uid) {
   S.meta.dono = uid;
   return false;
 }
+// 25 s sem resposta já é resposta: avisa em vez de deixar o botão parado
+const comPrazo = (promessa, ms) => Promise.race([promessa,
+  new Promise((_, rej) => setTimeout(() => rej(new Error("O servidor não respondeu. Verifique a internet e tente de novo.")), ms))]);
 async function tentarEntrar() {
   const em = document.getElementById("lEmail").value.trim();
   const se = document.getElementById("lSenha").value;
   if (!em || !se) return mostrarLogin("Preencha e-mail e senha.");
+  if (!cliente()) return mostrarLogin("A biblioteca da nuvem não carregou — a rede pode estar bloqueando. Recarregue a página (Ctrl+Shift+R).");
   const b = document.getElementById("btnEntrar");
   b.disabled = true; b.textContent = "Entrando…";
   let dados = null;
   try {
-    dados = await entrar(em, se);
+    dados = await comPrazo(entrar(em, se), 25000);
   } catch (e) {
+    console.error("login:", e);
     mostrarLogin(explicaErro(e));
   }
   b.disabled = false; b.textContent = "Entrar";
@@ -1844,7 +1859,7 @@ async function tentarEntrar() {
     if (trocou) alert("Este aparelho estava com os dados de outra conta. Foram limpos e os seus foram baixados.");
   });
 }
-document.getElementById("btnEntrar").onclick = tentarEntrar;
+document.getElementById("btnEntrar").onclick = () => tentarEntrar().catch(e => { console.error(e); mostrarLogin(explicaErro(e)); });
 document.getElementById("lSenha").addEventListener("keydown", e => { if (e.key === "Enter") tentarEntrar(); });
 
 // --- eventos ------------------------------------------------------------
@@ -2184,7 +2199,17 @@ else {
     let sess = null;
     try { sess = c ? (await c.auth.getSession()).data.session : null; }
     catch (e) { sess = null; }
-    if (!sess) return mostrarLogin(c ? "" : "A biblioteca da nuvem não carregou. Verifique a internet e recarregue.");
+    if (!sess) {
+      mostrarLogin(c ? "" : "Carregando a conexão com a nuvem…");
+      if (!c) {
+        let tentativas = 0;
+        const esperar = setInterval(() => {
+          if (cliente()) { clearInterval(esperar); mostrarLogin(""); }
+          else if (++tentativas > 20) { clearInterval(esperar); mostrarLogin("Não foi possível carregar a conexão com a nuvem. A rede pode estar bloqueando o acesso."); }
+        }, 500);
+      }
+      return;
+    }
     // sessão guardada neste aparelho: abre mesmo offline
     conferirDono(sess.user.id); salvar();
     abrirApp();

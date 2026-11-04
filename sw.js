@@ -1,6 +1,6 @@
 // A página vem pela rede primeiro (assim uma versão nova chega na hora) e cai
 // pro cache quando não há sinal — que é o caso no posto. O resto é cache-first.
-const CACHE = "assist-2026-11-03";
+const CACHE = "assist-2026-11-04";
 const ARQ = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", e => {

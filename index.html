@@ -231,26 +231,42 @@ dialog .big{max-width:100%;max-height:75vh;display:block;margin:0 auto;border-ra
 <script>
 "use strict";
 const KEY = "assist_v1";
-const VERSAO = "2026-11-04";
+const VERSAO = "2026-11-04b";
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
-// Sistemas afetados no padrão do SGQ. Os anos são sugestão (NBR 15575 /
-// manual do proprietário) e ficam editáveis nos ajustes — quem decide o
-// prazo que a empresa pratica é o engenheiro, não o app.
+// Prazos do Manual do Proprietário do empreendimento (tabela da ABNT NBR
+// 15575, contada da entrega das chaves / Habite-se). Um item por sistema e
+// modo de falha, como está no manual — é o que precisa constar no parecer.
 const SISTEMAS_SGQ = [
-  ["hidraulica", "Instalações hidráulicas", 3], ["eletrica", "Instalações elétricas", 3],
-  ["gas", "Instalações de gás", 3], ["caixa_agua", "Caixa d'água / reservatório", 5],
-  ["cobertura", "Cobertura / telhado", 5], ["esq_fachada", "Esquadrias – fachada", 3],
-  ["portas_int", "Portas internas", 2], ["portas_ext", "Portas externas", 2],
-  ["ceramico", "Revestimento cerâmico (pisos/paredes)", 5], ["pintura", "Pintura", 1],
-  ["imperm", "Impermeabilização", 5], ["estrutura", "Estrutural", 5],
-  ["argamassa", "Revestimento em argamassa", 5], ["fissuras", "Fissuras", 5],
-  ["forro", "Forro", 1], ["calcada", "Calçada", 1],
-  ["esgoto", "Esgoto sanitário", 3], ["pluviais", "Águas pluviais", 3],
-  ["calha", "Calha", 2], ["pias", "Pias", 1], ["bancadas", "Bancadas", 1],
-  ["soleiras", "Soleiras e peitoril", 2], ["vaso", "Vaso sanitário", 1],
-  ["tanque", "Tanque", 1], ["rejunte", "Rejunte e vedação", 1],
-  ["fechaduras", "Fechaduras e ferragens", 2], ["louças", "Louças e metais", 2],
+  ["estrutura", "Estrutura — segurança e estabilidade global", 5],
+  ["fund_estanq", "Fundações e contenções — estanqueidade", 5],
+  ["vedacao", "Paredes, cobertura, telhados, muros e guarda-corpos — segurança e integridade", 5],
+  ["equip_inst", "Equipamentos industrializados — instalação", 1],
+  ["equip_equip", "Equipamentos industrializados — o equipamento", 1],
+  ["dados_voz", "Dados, voz, telefonia, vídeo e TV", 1],
+  ["spda", "SPDA, combate a incêndio, iluminação de emergência e segurança", 1],
+  ["eletrica_equip", "Instalações elétricas — equipamentos (tomadas, interruptores, disjuntores)", 1],
+  ["eletrica", "Instalações elétricas — instalação (fios, eletrodutos, quadros)", 3],
+  ["hidraulica", "Hidráulica e gás — colunas e tubos de queda (integridade e estanqueidade)", 5],
+  ["hidr_equip", "Louças, metais, registros, ralos e tanques — o equipamento", 1],
+  ["hidr_inst", "Louças, metais, registros, ralos e tanques — instalação", 3],
+  ["imperm", "Impermeabilização — estanqueidade", 5],
+  ["esq_madeira", "Esquadrias de madeira — empenamento, descolamento e fixação", 1],
+  ["esq_aco", "Esquadrias de aço — fixação e oxidação", 1],
+  ["fechaduras", "Fechaduras e ferragens — funcionamento e acabamento", 1],
+  ["argamassa_fis", "Revestimento em argamassa — fissuras", 2],
+  ["argamassa_est", "Revestimento em argamassa — estanqueidade de fachada e área molhada", 3],
+  ["argamassa", "Revestimento em argamassa — má aderência", 5],
+  ["ceramico", "Azulejo e cerâmica — soltos, gretados ou desgaste excessivo", 2],
+  ["ceramico_est", "Azulejo e cerâmica — estanqueidade de fachada e área molhada", 3],
+  ["pedras", "Pedras naturais (mármore, granito) — soltas, gretadas ou desgaste", 2],
+  ["pedras_est", "Pedras naturais — estanqueidade de fachada e área molhada", 3],
+  ["piso_cim", "Piso cimentado, concreto e contrapiso — destacamento, fissuras, desgaste", 2],
+  ["piso_cim_est", "Piso cimentado e contrapiso — estanqueidade em área molhada", 3],
+  ["rev_especial", "Revestimentos especiais (fórmica, plásticos, têxteis) — aderência", 2],
+  ["pintura", "Pintura e verniz — empolamento, descolamento, esfarelamento, alteração de cor", 2],
+  ["rejunte", "Selantes, juntas e rejuntamentos — aderência", 1],
+  ["vidros", "Vidros — fixação", 1],
   ["outro", "Outros", 1]
 ];
 
@@ -385,7 +401,17 @@ const casasDe = cid => S.imoveis.filter(i => i.condominioId === cid).sort((a, b)
 const condsOrdenados = () => S.condominios.slice().sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
 
 const STATUS = { aberto: ["Aberto", "in"], agendado: ["Agendado", "in"], andamento: ["Em andamento", "wa"], resolvido: ["Resolvido", "ok"], fora_garantia: ["Fora de garantia", "er"], nao_procede: ["Não procede", "mut"] };
-const MOTIVOS = { fora_garantia: "Fora do prazo de garantia", modificado: "Modificado pelo cliente", mau_uso: "Mau uso / falta de manutenção", outros: "Outros" };
+// Causas de perda de garantia listadas no Manual do Proprietário
+const MOTIVOS = {
+  fora_garantia: "Fora do prazo de garantia",
+  modificado: "Reforma ou alteração do sistema pelo proprietário",
+  mau_uso: "Mau uso ou falta dos cuidados de uso",
+  sem_manutencao: "Falta de manutenção preventiva (ABNT NBR 5674)",
+  sobrecarga: "Sobrecarga acima do limite informado no manual",
+  pecas: "Peça substituída por outra sem desempenho equivalente",
+  acesso: "Proprietário não permitiu o acesso para vistoria",
+  outros: "Outros"
+};
 const MEIOS = { whatsapp: "WhatsApp", email: "E-mail", maos: "Entregue em mãos", correio: "Correio" };
 const VTIPO = { avaliacao: "Avaliação", execucao: "Execução", retorno: "Retorno" };
 const CANAL = { whatsapp: "WhatsApp", telefone: "Telefone", pessoal: "Pessoalmente", outro: "Outro" };
@@ -643,6 +669,7 @@ function detalheChamado(c) {
     <div class="fotos">${fotosDe(c.id).map(f => `<img data-foto="${f.id}" alt="">`).join("")}<button class="add" data-act="addFoto" data-ref="${c.id}" aria-label="Adicionar foto">+</button></div>
     <div class="acts">
       ${im.telefone ? `<a class="btn sec sm" style="text-decoration:none;display:inline-block" href="${wa(im.telefone)}" target="_blank">WhatsApp</a>` : ""}
+      ${(cond(im.condominioId) || {}).manualUrl ? `<a class="btn sec sm" style="text-decoration:none;display:inline-block" href="${esc(cond(im.condominioId).manualUrl)}" target="_blank" rel="noopener">manual</a>` : ""}
       <button class="btn sec sm" data-act="editarChamado" data-id="${c.id}">editar</button>
       <button class="btn sec sm" data-act="formulario" data-id="${c.id}"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px"><path d="M6 9V3h12v6M6 18H4v-6h16v6h-2M8 14h8v7H8z"/></svg> formulário</button>
       ${semAssinatura(c) ? `<button class="btn sm" data-act="assinado" data-id="${c.id}">assinatura coletada</button>` : ""}
@@ -775,6 +802,7 @@ function detalheCond(cd) {
     <dl class="info">
       <dt>Endereço</dt><dd>${esc(cd.endereco) || "—"}</dd>
       <dt>Entrega</dt><dd>${cd.entrega ? dBR(cd.entrega) + ' <span class="mut">(padrão das casas sem data própria)</span>' : "—"}</dd>
+      ${cd.manualUrl ? `<dt>Manual</dt><dd><a href="${esc(cd.manualUrl)}" target="_blank" rel="noopener">Manual do Proprietário</a></dd>` : ""}
       ${cd.obs ? `<dt>Obs.</dt><dd style="white-space:pre-wrap">${esc(cd.obs)}</dd>` : ""}
     </dl>
     <div class="acts" style="margin-top:8px">
@@ -853,8 +881,8 @@ function vAjustes() {
       <button class="icobtn" data-act="rmGar" data-id="${g.id}" aria-label="remover">✕</button></div>`).join("")}
     <p class="mut" style="font-size:12px;margin:0 0 10px">nome · anos de garantia contados da entrega das chaves</p>
     <div class="acts"><button class="btn sec sm" data-act="addGar">+ tipo de problema</button>
-    <button class="btn sec sm" data-act="catalogoSGQ">carregar lista completa (SGQ)</button></div>
-    <p class="mut" style="font-size:12px;margin:8px 0 0">A lista completa traz os ${SISTEMAS_SGQ.length} sistemas do padrão SGQ com prazos sugeridos. <b>Confira os anos</b> antes de usar: quem define o prazo que a empresa pratica é o responsável técnico.</p>
+    <button class="btn sec sm" data-act="catalogoSGQ">carregar prazos do manual</button></div>
+    <p class="mut" style="font-size:12px;margin:8px 0 0">Traz os ${SISTEMAS_SGQ.length} itens da tabela de garantias do Manual do Proprietário (ABNT NBR 15575), e corrige os anos dos que você já tem cadastrados com prazo diferente.</p>
   </div>
   <p class="sec-t">quem faz as visitas</p>
   <div class="card">
@@ -994,11 +1022,12 @@ function formCond(cd, depois) {
       <div><label>Endereço</label><input name="endereco" value="${esc(cd.endereco)}" placeholder="Rua, bairro"></div>
       <div><label>Entrega das chaves</label><input name="entrega" type="date" value="${esc(cd.entrega)}"><p class="mut" style="font-size:11.5px;margin:4px 0 0">vale pras casas sem data própria</p></div>
     </div>
+    <div class="field"><label>Link do Manual do Proprietário</label><input name="manualUrl" value="${esc(cd.manualUrl)}" placeholder="https://drive.google.com/..."></div>
     <div class="field"><label>Observações</label><textarea name="obs" style="min-height:56px">${esc(cd.obs)}</textarea></div>`,
   d => {
     const novo = !cd.id;
     const o = novo ? { id: uid() } : cd;
-    Object.assign(o, { nome: d.nome.trim(), endereco: d.endereco.trim(), entrega: d.entrega, obs: d.obs.trim() });
+    Object.assign(o, { nome: d.nome.trim(), endereco: d.endereco.trim(), entrega: d.entrega, manualUrl: (d.manualUrl || "").trim(), obs: d.obs.trim() });
     if (novo) S.condominios.push(o);
     salvar();
     if (depois) setTimeout(() => depois(o)); else { selCond = o.id; selIm = null; mostrarDetalhe = true; render(); }
@@ -1163,7 +1192,9 @@ const linhaDiag = (it, i, c) => {
 };
 function formEncerrar(c, ini) {
   const e = Object.assign({ data: hoje(), obs: "", servicos: servicosDasVisitas(c) }, c.encerrado || {}, ini || {});
+  const man = (cond((imovel(c.imovelId) || {}).condominioId) || {}).manualUrl;
   abrirForm(`<h2>${c.encerrado ? "Editar encerramento" : "Encerrar chamado"}</h2>
+    ${man ? `<p class="mut" style="font-size:12.5px;margin:-8px 0 10px">Prazos e causas de perda de garantia: <a href="${esc(man)}" target="_blank" rel="noopener">Manual do Proprietário</a></p>` : ""}
     <div class="field"><label>Diagnóstico de cada problema</label>
       <div id="diags">${itens(c).map((it, i) => linhaDiag(it, i, c)).join("")}</div></div>
     <div class="field" style="max-width:220px"><label>Data de encerramento</label><input name="data" type="date" required value="${e.data}"></div>
@@ -1237,7 +1268,7 @@ function mesclarCadastros(d) {
   (d.condominios || []).forEach(cd => {
     const existente = S.condominios.find(x => norm(x.nome) === norm(cd.nome));
     if (existente) { mapa[cd.id] = existente.id; return; }
-    const novo = { id: uid(), nome: cd.nome, endereco: cd.endereco || "", entrega: cd.entrega || "", obs: cd.obs || "" };
+    const novo = { id: uid(), nome: cd.nome, endereco: cd.endereco || "", entrega: cd.entrega || "", manualUrl: cd.manualUrl || "", obs: cd.obs || "" };
     S.condominios.push(novo); mapa[cd.id] = novo.id; r.conds++;
   });
   (d.imoveis || []).forEach(im => {
@@ -1651,11 +1682,16 @@ function acao(a, id, el) {
     case "catalogoSGQ": {
       lerAjustes();
       const novos = SISTEMAS_SGQ.filter(([id, nome]) => !S.config.garantias.some(g => g.id === id || norm(g.nome) === norm(nome)));
-      if (!novos.length) return alert("A lista já está completa.");
-      if (!confirm("Adicionar " + novos.length + " sistema(s) à lista? Os que você já tem não são alterados.")) return;
+      const corrigir = SISTEMAS_SGQ.map(([id, nome, anos]) => ({ g: S.config.garantias.find(g => g.id === id), nome, anos }))
+        .filter(x => x.g && (x.g.anos !== x.anos || x.g.nome !== x.nome));
+      if (!novos.length && !corrigir.length) return alert("Os prazos já estão iguais aos do manual.");
+      const msg = [novos.length ? "Adicionar " + novos.length + " item(ns) da tabela do manual" : "",
+        corrigir.length ? "ajustar " + corrigir.length + " item(ns) para o texto e o prazo do manual:\n" + corrigir.map(x => "• " + x.g.nome + " (" + x.g.anos + " ano(s)) → " + x.nome + " (" + x.anos + " ano(s))").join("\n") : ""].filter(Boolean).join("\n\n");
+      if (!confirm(msg + "\n\nConfirma?")) return;
       novos.forEach(([id, nome, anos]) => S.config.garantias.push({ id, nome, anos }));
+      corrigir.forEach(x => { x.g.anos = x.anos; x.g.nome = x.nome; });
       salvar(); render();
-      return alert(novos.length + " sistema(s) adicionado(s). Confira os anos de garantia de cada um.");
+      return alert("Pronto: " + novos.length + " adicionado(s), " + corrigir.length + " corrigido(s).");
     }
     case "addGar": lerAjustes(); S.config.garantias.push({ id: uid(), nome: "Novo tipo", anos: 1 }); salvar(); return render();
     case "rmGar": if (S.chamados.some(x => itens(x).some(it => it.tipoId === id))) return alert("Tem chamado usando esse tipo."); lerAjustes(); S.config.garantias = S.config.garantias.filter(g => g.id !== id); salvar(); return render();
@@ -1805,6 +1841,12 @@ function autoteste() {
   // devolve o cenário que os testes seguintes usam
   S.condominios = [{ id: "k1", nome: "Res. Sol", endereco: "", entrega: "2023-03-10", obs: "" }];
   S.imoveis = [{ id: "i1", cliente: "Ana", telefone: "11999990000", condominioId: "k1", endereco: "casa 1", entrega: "" }];
+  T("catálogo do manual tem os prazos da NBR 15575", (() => {
+    const m = Object.fromEntries(SISTEMAS_SGQ.map(([id, , anos]) => [id, anos]));
+    return m.pintura === 2 && m.imperm === 5 && m.estrutura === 5 && m.eletrica === 3 && m.eletrica_equip === 1
+      && m.hidraulica === 5 && m.hidr_inst === 3 && m.ceramico === 2 && m.ceramico_est === 3 && m.rejunte === 1 && m.fechaduras === 1;
+  })());
+  T("motivos de não procedência saíram do manual", MOTIVOS.sem_manutencao.includes("5674") && MOTIVOS.sobrecarga && MOTIVOS.pecas);
   T("resumo dos serviços vem das visitas feitas", servicosDasVisitas(S.chamados[1]) === "08/01/2026 — trocou o rejunte (material: Rejunte 1 kg)");
   T("encerrado sem envio fica pendente de validação", pendenteValidacao({ encerrado: { status: "resolvido", data: "2026-01-08" } }) === true && validacao({ encerrado: { status: "resolvido", data: "2026-01-08" } }).k === "enviar");
   T("encerrado assinado não fica pendente", pendenteValidacao({ encerrado: { status: "resolvido", data: "2026-01-08", envio: { data: "2026-01-08" }, prazo: "2026-01-13", assinatura: { data: "2026-01-09", tipo: "assinado" } } }) === false);

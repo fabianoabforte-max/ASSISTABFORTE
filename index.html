@@ -231,6 +231,7 @@ dialog .big{max-width:100%;max-height:75vh;display:block;margin:0 auto;border-ra
 <script>
 "use strict";
 const KEY = "assist_v1";
+const VERSAO = "2026-11-03";
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 // Sistemas afetados no padrão do SGQ. Os anos são sugestão (NBR 15575 /
@@ -890,7 +891,8 @@ function vAjustes() {
     <p class="mut" style="font-size:12px;margin:12px 0 6px">Arquivo de cadastros (lista de clientes/casas): soma aos que já existem, sem apagar nada.</p>
     <button class="btn sec" data-act="importar">Importar cadastros</button>
   </div>
-  <p class="dl">${S.imoveis.length} imóveis · ${S.chamados.length} chamados · ${S.visitas.length} visitas · ${S.fotos.length} fotos</p>`;
+  <p class="dl">${S.imoveis.length} imóveis · ${S.chamados.length} chamados · ${S.visitas.length} visitas · ${S.fotos.length} fotos</p>
+  <p class="dl" style="margin-top:0">versão ${VERSAO} · <button class="icobtn" data-act="atualizar" style="font-size:12px;padding:2px 6px">procurar atualização</button></p>`;
 }
 function lerAjustes() {
   document.querySelectorAll("[data-g]").forEach(el => {
@@ -938,7 +940,21 @@ dlg.addEventListener("submit", e => {
 // o evento close chega atrasado; se outro formulário já reabriu o dialog, não limpa
 dlg.addEventListener("close", () => { if (!dlg.open) { aoEnviar = null; dlg.innerHTML = ""; } });
 
-const selectImoveis = (v, obrig = true) => `<select name="imovelId" ${obrig ? "required" : ""}><option value="">— escolha o imóvel —</option>${S.imoveis.slice().sort((a, b) => a.cliente.localeCompare(b.cliente, "pt-BR")).map(i => `<option value="${i.id}" ${i.id === v ? "selected" : ""}>${esc(i.cliente)} — ${esc(i.endereco || nomeCond(i) || "")}</option>`).join("")}</select>`;
+// "Casa 07" → 7; casa sem número vai pro fim da lista
+const numCasa = im => { const m = String((im || {}).endereco || "").match(/\d+/); return m ? Number(m[0]) : 1e9; };
+const porCasa = (a, b) => numCasa(a) - numCasa(b) || String(a.endereco || "").localeCompare(String(b.endereco || ""), "pt-BR") || a.cliente.localeCompare(b.cliente, "pt-BR");
+function selectImoveis(v, obrig = true) {
+  const grupos = new Map();
+  S.imoveis.slice().sort(porCasa).forEach(i => {
+    const k = nomeCond(i) || "Sem condomínio";
+    if (!grupos.has(k)) grupos.set(k, []);
+    grupos.get(k).push(i);
+  });
+  const opt = i => `<option value="${i.id}" ${i.id === v ? "selected" : ""}>${esc(i.endereco || "sem endereço")} — ${esc(i.cliente)}</option>`;
+  const corpo = [...grupos.entries()].sort((a, b) => a[0].localeCompare(b[0], "pt-BR"))
+    .map(([nome, l]) => `<optgroup label="${esc(nome)}">${l.map(opt).join("")}</optgroup>`).join("");
+  return `<select name="imovelId" ${obrig ? "required" : ""}><option value="">— escolha o imóvel —</option>${corpo}</select>`;
+}
 const selectTipos = v => `<select name="iTipo" required>${S.config.garantias.map(g => `<option value="${g.id}" ${g.id === v ? "selected" : ""}>${esc(g.nome)} (${g.anos} ano${g.anos > 1 ? "s" : ""})</option>`).join("")}</select>`;
 const linhaItem = (it = {}) => `<div class="item" style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px">
   <div style="display:flex;gap:6px;align-items:center">${selectTipos(it.tipoId)}<button type="button" class="icobtn" data-act="rmItem" aria-label="remover problema">✕</button></div>
@@ -1663,6 +1679,12 @@ function acao(a, id, el) {
     }
     case "exportar": S.config.ultimoBackup = hoje(); salvar(); baixar("assistencia-" + hoje() + ".json", JSON.stringify(S, null, 1), "application/json"); return render();
     case "importar": return document.getElementById("fileImp").click();
+    case "atualizar": {
+      const limpar = ("caches" in window ? caches.keys().then(ks => Promise.all(ks.map(k => caches.delete(k)))) : Promise.resolve())
+        .then(() => navigator.serviceWorker ? navigator.serviceWorker.getRegistrations().then(rs => Promise.all(rs.map(r => r.update()))) : null);
+      limpar.catch(() => { }).then(() => location.reload(true));
+      return;
+    }
   }
 }
 document.addEventListener("input", e => {
@@ -1681,7 +1703,7 @@ document.addEventListener("change", e => {
     fr.onload = () => {
       try {
         const d = JSON.parse(fr.result);
-        if (!d || !Array.isArray(d.imoveis)) throw 0;
+        if (!d || !Array.isArray(d.imoveis)) throw new Error("não tem a lista de imóveis — esse arquivo não é um backup nem uma lista de cadastros do app");
         if (d.mesclar) {
           if (!confirm("Adicionar " + d.imoveis.length + " casa(s) aos cadastros atuais? Nada é apagado.")) return;
           const r = mesclarCadastros(d);
@@ -1691,7 +1713,7 @@ document.addEventListener("change", e => {
         }
         if (!confirm("Substituir os dados atuais por " + d.chamados.length + " chamados do backup?")) return;
         S = migrar(d); salvar(); render(); alert("Backup restaurado.");
-      } catch (err) { alert("Arquivo inválido."); }
+      } catch (err) { alert("Não deu pra importar: " + (err && err.message ? err.message : "arquivo inválido") + "\n\nSe o arquivo veio pronto e mesmo assim deu erro, o app pode estar desatualizado: Ajustes → procurar atualização."); }
     };
     fr.readAsText(e.target.files[0]); e.target.value = "";
   }
@@ -1767,6 +1789,22 @@ function autoteste() {
   T("importar cadastros reaproveita condomínio de mesmo nome", rm.conds === 0 && S.condominios.length === 1);
   T("importar cadastros não duplica casa já existente", rm.casas === 1 && rm.repetidas === 1 && S.imoveis.length === 2);
   T("casa importada fica ligada ao condomínio certo", S.imoveis[1].condominioId === "k1" && S.imoveis[1].cliente === "Bia");
+  S.condominios = [{ id: "m1", nome: "Alvorada — Módulo 1" }, { id: "m2", nome: "Alvorada — Módulo 2" }];
+  S.imoveis = [
+    { id: "x1", cliente: "Zuleica", telefone: "", condominioId: "m1", endereco: "Casa 02", entrega: "" },
+    { id: "x2", cliente: "Ana", telefone: "", condominioId: "m1", endereco: "Casa 10", entrega: "" },
+    { id: "x3", cliente: "Bruno", telefone: "", condominioId: "m1", endereco: "Casa 01", entrega: "" },
+    { id: "x4", cliente: "Carla", telefone: "", condominioId: "m2", endereco: "Casa 54", entrega: "" },
+    { id: "x5", cliente: "Davi", telefone: "", condominioId: "m1", endereco: "", entrega: "" }];
+  const sel = selectImoveis("");
+  const ordem = [...sel.matchAll(/value="(x\d)"/g)].map(m => m[1]).join(",");
+  T("lista do chamado sai por número de casa, não por nome", ordem === "x3,x1,x2,x5,x4");
+  T("casa sem número vai pro fim do seu grupo", ordem.indexOf("x5") > ordem.indexOf("x2"));
+  T("lista agrupada por condomínio", sel.includes('<optgroup label="Alvorada — Módulo 1">') && sel.includes('<optgroup label="Alvorada — Módulo 2">'));
+  T("a casa aparece antes do nome na opção", sel.includes("Casa 01 — Bruno"));
+  // devolve o cenário que os testes seguintes usam
+  S.condominios = [{ id: "k1", nome: "Res. Sol", endereco: "", entrega: "2023-03-10", obs: "" }];
+  S.imoveis = [{ id: "i1", cliente: "Ana", telefone: "11999990000", condominioId: "k1", endereco: "casa 1", entrega: "" }];
   T("resumo dos serviços vem das visitas feitas", servicosDasVisitas(S.chamados[1]) === "08/01/2026 — trocou o rejunte (material: Rejunte 1 kg)");
   T("encerrado sem envio fica pendente de validação", pendenteValidacao({ encerrado: { status: "resolvido", data: "2026-01-08" } }) === true && validacao({ encerrado: { status: "resolvido", data: "2026-01-08" } }).k === "enviar");
   T("encerrado assinado não fica pendente", pendenteValidacao({ encerrado: { status: "resolvido", data: "2026-01-08", envio: { data: "2026-01-08" }, prazo: "2026-01-13", assinatura: { data: "2026-01-09", tipo: "assinado" } } }) === false);

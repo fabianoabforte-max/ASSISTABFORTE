@@ -7,7 +7,7 @@
 <title>Assistência Técnica</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg">
-<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.58.0/dist/umd/supabase.js"></script>
 <style>
 :root{
   --bg:#f4f5f7; --card:#fff; --line:#e3e5ea; --line2:#cfd3db;
@@ -231,7 +231,7 @@ dialog .big{max-width:100%;max-height:75vh;display:block;margin:0 auto;border-ra
 <script>
 "use strict";
 const KEY = "assist_v1";
-const VERSAO = "2026-11-04c";
+const VERSAO = "2026-11-05";
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 // Prazos do Manual do Proprietário do empreendimento (tabela da ABNT NBR
@@ -287,7 +287,7 @@ const PADRAO = () => ({
     formRevisao: "Revisão: 02  -  Data: 13/03/2023",
     diasAceite: 3,
     feriados: [],
-    driveClientId: "",
+
     ultimoBackup: null
   },
   meta: { salvoEm: null },
@@ -550,8 +550,8 @@ function cabecalho() {
   document.getElementById("hSub").textContent = n + " chamado" + (n === 1 ? "" : "s") + " em aberto" + (atr ? " · " + atr + " visita" + (atr === 1 ? "" : "s") + " atrasada" + (atr === 1 ? "" : "s") : "");
   document.querySelectorAll("[data-tab]").forEach(b => b.setAttribute("aria-current", b.dataset.tab === tela ? "page" : "false"));
   const bd = document.getElementById("btnDrive");
-  bd.className = "icobtn " + DRIVE.estado;
-  bd.title = { off: "Conectar ao Google Drive", sync: "Sincronizado" + (DRIVE.quando ? " às " + DRIVE.quando : ""), busy: "Sincronizando…", err: "Erro: " + DRIVE.erro }[DRIVE.estado];
+  bd.className = "icobtn " + (NUVEM.estado === "pronto" ? "off" : NUVEM.estado);
+  bd.title = { off: "Entrar na nuvem (Ajustes)", pronto: "Conectado como " + NUVEM.email, sync: "Sincronizado" + (NUVEM.quando ? " às " + NUVEM.quando : ""), busy: "Sincronizando…", err: "Erro: " + NUVEM.erro }[NUVEM.estado] || "";
 }
 function render() {
   cabecalho();
@@ -981,17 +981,30 @@ function vAjustes() {
       <p class="mut" style="font-size:12px;margin:5px 0 0">Feriados nacionais e Sexta-feira Santa já entram sozinhos na conta.</p></div>
     <p class="mut" style="font-size:12px;margin:0">Próximo nº sequencial: <b>${fmtSeq(proxSeq())}</b> — pode ser ajustado ao abrir cada chamado.</p>
   </div>
-  <p class="sec-t">google drive</p>
+  <p class="sec-t">conta e sincronização</p>
   <div class="card">
-    <div class="field"><label for="aCid">Client ID (do Google Cloud)</label><input id="aCid" value="${esc(S.config.driveClientId)}" placeholder="123456-abc.apps.googleusercontent.com" style="font-size:12px"></div>
-    <p class="mut" style="font-size:12px;margin:0 0 10px">O passo a passo pra criar o Client ID está no README do repositório. Os dados ficam num arquivo <code>assistencia.json</code> e as fotos numa pasta, dentro do seu Drive.</p>
-    <p style="font-size:13px;margin:0 0 10px">Estado: <b>${{ off: "desconectado", sync: "sincronizado" + (DRIVE.quando ? " às " + DRIVE.quando : ""), busy: "sincronizando…", err: "erro — " + DRIVE.erro }[DRIVE.estado]}</b></p>
-    <button class="btn" data-act="sync">${DRIVE.estado === "off" ? "Conectar e sincronizar" : "Sincronizar agora"}</button>
+    ${NUVEM.email ? `
+      <dl class="info">
+        <dt>Conta</dt><dd>${esc(NUVEM.email)}</dd>
+        <dt>Perfil</dt><dd>${{ admin: "Administrador — vê e altera tudo", registrador: "Registrador — altera as obras liberadas", leitor: "Leitor — só visualiza" }[NUVEM.papel] || esc(NUVEM.papel)}</dd>
+        <dt>Estado</dt><dd>${{ pronto: "conectado, ainda não sincronizou", sync: "sincronizado" + (NUVEM.quando ? " às " + NUVEM.quando : ""), busy: "sincronizando…", err: "erro — " + esc(NUVEM.erro), off: "desconectado" }[NUVEM.estado] || "—"}</dd>
+      </dl>
+      <div class="acts" style="margin-top:10px">
+        <button class="btn sm" data-act="sync">Sincronizar agora</button>
+        <button class="btn sec sm" data-act="sairNuvem">Sair da conta</button>
+      </div>`
+    : `
+      <p class="mut" style="font-size:12.5px;margin:0 0 10px">Sem entrar, o app funciona normal e guarda tudo neste aparelho. Entrando, os dados passam a ser os mesmos no computador e no celular, e quem a empresa liberar consegue acompanhar.</p>
+      <div class="grid2 field">
+        <div><label for="aEmail">E-mail</label><input id="aEmail" type="email" autocomplete="username" placeholder="voce@empresa.com"></div>
+        <div><label for="aSenha">Senha</label><input id="aSenha" type="password" autocomplete="current-password"></div>
+      </div>
+      <button class="btn" data-act="entrarNuvem">Entrar</button>`}
   </div>
   <button class="btn" data-act="salvarCfg">Salvar ajustes</button>
   <p class="sec-t">backup</p>
   <div class="card">
-    <p style="margin:0 0 12px;font-size:12px;color:${ub && dias(ub, hoje()) < 30 ? "var(--tx3)" : "var(--wa-tx)"}">${ub ? "último backup: " + dBR(ub) + " (há " + dias(ub, hoje()) + " dias)" : "você nunca exportou backup"} · as fotos não vão no arquivo (ficam no Drive)</p>
+    <p style="margin:0 0 12px;font-size:12px;color:${ub && dias(ub, hoje()) < 30 ? "var(--tx3)" : "var(--wa-tx)"}">${ub ? "último backup: " + dBR(ub) + " (há " + dias(ub, hoje()) + " dias)" : "você nunca exportou backup"} · as fotos não vão no arquivo</p>
     <button class="btn sec" data-act="exportar">Exportar backup</button>
     <button class="btn sec" data-act="importar" style="margin-top:10px">Importar backup</button>
     <p class="mut" style="font-size:12px;margin:12px 0 6px">Arquivo de cadastros (lista de clientes/casas): soma aos que já existem, sem apagar nada.</p>
@@ -1023,8 +1036,7 @@ function lerAjustes() {
     const pad2 = v => String(v).padStart(2, "0");
     return q.length === 3 ? q[2] + "-" + pad2(q[1]) + "-" + pad2(q[0]) : q.length === 2 ? pad2(q[1]) + "-" + pad2(q[0]) : "";
   }).filter(Boolean);
-  const cid = document.getElementById("aCid");
-  if (cid) S.config.driveClientId = cid.value.trim();
+
 }
 
 // --- formulários (dialog nativo) ---------------------------------------
@@ -1468,17 +1480,11 @@ async function carregarFotos() {
   for (const img of document.querySelectorAll("img[data-foto]:not([src])")) {
     const id = img.dataset.foto;
     if (!urlFoto[id]) {
-      let b = await idb.get(id).catch(() => null);
-      if (!b) {
-        const f = S.fotos.find(x => x.id === id);
-        if (f && f.driveId && tokenValido()) {
-          try { b = await (await dapi("files/" + f.driveId + "?alt=media")).blob(); await idb.put(id, b); } catch (e) { }
-        }
-      }
+      const b = await idb.get(id).catch(() => null);
       if (b) urlFoto[id] = URL.createObjectURL(b);
     }
     if (urlFoto[id]) img.src = urlFoto[id];
-    else img.alt = tokenValido() ? "foto não encontrada" : "foto na nuvem — conecte o Drive";
+    else img.alt = "foto guardada em outro aparelho";
   }
 }
 async function excluirFoto(id) {
@@ -1486,101 +1492,176 @@ async function excluirFoto(id) {
   S.fotos = S.fotos.filter(x => x.id !== id);
   await idb.del(id).catch(() => { });
   delete urlFoto[id];
+  void f;
   salvar();
-  if (f && f.driveId && tokenValido()) dapi("files/" + f.driveId, { method: "DELETE" }).catch(() => { });
 }
 
-// --- google drive -------------------------------------------------------
-// ponytail: última versão ganha, sem mesclagem por registro. Usuário único;
-// se um dia editar nos dois aparelhos sem sincronizar no meio, perde a mais
-// antiga. Mitigação: sincroniza ao abrir e 3 s depois de cada alteração.
-const DRIVE = { estado: "off", erro: "", quando: null, timer: null };
-const SCOPE = "https://www.googleapis.com/auth/drive.file";
-function tokenValido() {
-  try { const t = JSON.parse(sessionStorage.getItem("assist_tok") || "null"); return t && t.exp > Date.now() + 60000 ? t.tok : null; } catch (e) { return null; }
+// --- nuvem (Supabase): login, perfis e sincronização ---------------------
+// O app continua funcionando sozinho, offline, com os dados no aparelho.
+// Estando logado, ele sobe o que mudou e baixa o que os outros mudaram.
+// Quem decide quem vê o quê é o banco, não esta tela.
+const SUPA_URL = "https://tazxqjfijeetopircnah.supabase.co";
+const SUPA_KEY = "sb_publishable_JFmxprnZn8Uqf7eM0jMWIg_NQKKPk7e";
+const NUVEM = { estado: "off", erro: "", quando: null, timer: null, email: "", papel: "", ocupado: false };
+let sb = null;
+function cliente() {
+  if (!sb && window.supabase) sb = window.supabase.createClient(SUPA_URL, SUPA_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
+  return sb;
 }
-function conectar() {
-  return new Promise((res, rej) => {
-    if (!S.config.driveClientId) return rej(new Error("informe o Client ID nos ajustes"));
-    if (!window.google || !google.accounts) return rej(new Error("biblioteca do Google não carregou (sem internet?)"));
-    google.accounts.oauth2.initTokenClient({
-      client_id: S.config.driveClientId, scope: SCOPE,
-      callback: r => {
-        if (r.error) return rej(new Error(r.error));
-        sessionStorage.setItem("assist_tok", JSON.stringify({ tok: r.access_token, exp: Date.now() + r.expires_in * 1000 }));
-        res(r.access_token);
-      },
-      error_callback: e => rej(new Error(e.type === "popup_closed" ? "janela fechada" : e.type || "erro"))
-    }).requestAccessToken({ prompt: "" });
-  });
+
+// De que obra é cada registro — é o que o banco usa pra liberar ou barrar
+const obraDoModulo = cd => cd.obraId || null;
+const obraDoImovel = im => (cond(im.condominioId) || {}).obraId || null;
+const obraDoChamado = c => obraDoImovel(imovel(c.imovelId) || {});
+const obraDaVisita = v => { const c = chamado(v.chamadoId); return c ? obraDoChamado(c) : null; };
+const d2n = v => v || null;   // data vazia vai como nulo pro banco
+
+// Como cada tabela daqui vira tabela de lá, e vice-versa
+const TABELAS = [
+  { tab: "obras", arr: "obras", obra: o => o.id,
+    sobe: o => ({ id: o.id, nome: o.nome || "", cidade: o.cidade || "", manual_url: o.manualUrl || "", obs: o.obs || "" }),
+    desce: r => ({ id: r.id, nome: r.nome || "", cidade: r.cidade || "", manualUrl: r.manual_url || "", obs: r.obs || "" }) },
+  { tab: "modulos", arr: "condominios", obra: obraDoModulo,
+    sobe: c => ({ id: c.id, obra_id: c.obraId, nome: c.nome || "", endereco: c.endereco || "", entrega: d2n(c.entrega), obs: c.obs || "" }),
+    desce: r => ({ id: r.id, obraId: r.obra_id, nome: r.nome || "", endereco: r.endereco || "", entrega: r.entrega || "", obs: r.obs || "" }) },
+  { tab: "imoveis", arr: "imoveis", obra: obraDoImovel,
+    sobe: i => ({ id: i.id, obra_id: obraDoImovel(i), modulo_id: i.condominioId || null, cliente: i.cliente || "", telefone: i.telefone || "", horarios: i.horarios || "", endereco: i.endereco || "", entrega: d2n(i.entrega), obs: i.obs || "" }),
+    desce: r => ({ id: r.id, condominioId: r.modulo_id, cliente: r.cliente || "", telefone: r.telefone || "", horarios: r.horarios || "", endereco: r.endereco || "", entrega: r.entrega || "", obs: r.obs || "", criadoEm: "" }) },
+  { tab: "chamados", arr: "chamados", obra: obraDoChamado,
+    sobe: c => ({ id: c.id, obra_id: obraDoChamado(c), imovel_id: c.imovelId, seq: c.seq || null, data: d2n(c.data), canal: c.canal || "", cortesia: !!c.cortesia, garantia: c.garantia || "auto", itens: itens(c), encerrado: c.encerrado || null, ciclos: c.ciclos || [], historico: c.historico || [], criado_em: c.criadoEm || null }),
+    desce: r => ({ id: r.id, imovelId: r.imovel_id, seq: r.seq || 0, data: r.data || "", canal: r.canal || "", cortesia: !!r.cortesia, garantia: r.garantia || "auto", itens: r.itens || [], encerrado: r.encerrado || null, ciclos: r.ciclos || [], historico: r.historico || [], criadoEm: r.criado_em || "" }) },
+  { tab: "visitas", arr: "visitas", obra: obraDaVisita,
+    sobe: v => ({ id: v.id, obra_id: obraDaVisita(v), chamado_id: v.chamadoId, data: d2n(v.data), hora: v.hora || "", tipo: v.tipo || "", pessoa_id: v.pessoaId || "", obs: v.obs || "", feita: !!v.feita, cancelada: v.cancelada || null, relato: v.relato || "", resolveu: v.resolveu === null ? null : !!v.resolveu, materiais: v.materiais || [] }),
+    desce: r => ({ id: r.id, chamadoId: r.chamado_id, data: r.data || "", hora: r.hora || "", tipo: r.tipo || "", pessoaId: r.pessoa_id || "", obs: r.obs || "", feita: !!r.feita, cancelada: r.cancelada || null, relato: r.relato || "", resolveu: r.resolveu, materiais: r.materiais || [] }) }
+];
+
+// Assinatura do registro: só sobe o que realmente mudou desde a última vez.
+// Sem isso, cada sincronização reescreveria tudo e os aparelhos ficariam
+// baixando um do outro sem parar.
+function assina(o) {
+  const t = JSON.stringify(o); let h = 0;
+  for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0;
+  return t.length + ":" + h;
 }
-async function dapi(path, opts = {}, upload = false) {
-  const tok = tokenValido(); if (!tok) throw new Error("não conectado");
-  const r = await fetch((upload ? "https://www.googleapis.com/upload/drive/v3/" : "https://www.googleapis.com/drive/v3/") + path,
-    Object.assign({}, opts, { headers: Object.assign({ Authorization: "Bearer " + tok }, opts.headers || {}) }));
-  if (r.status === 401) { sessionStorage.removeItem("assist_tok"); throw new Error("sessão expirou, conecte de novo"); }
-  if (!r.ok) {
-    // o Google explica o motivo no corpo (API desativada, cota, escopo…)
-    let msg = ""; try { msg = (await r.json()).error.message; } catch (e) { }
-    throw new Error("Drive respondeu " + r.status + (msg ? ": " + msg : ""));
-  }
-  return r;
+const marcas = () => (S.meta.marcas = S.meta.marcas || {});
+// Exclusão precisa viajar: guarda o que foi apagado até confirmar lá
+function marcarExcluido(tab, id) {
+  if (!S.meta.sync || !S.meta.sync.ligado) return;
+  (S.meta.excluidos = S.meta.excluidos || []).push({ tab, id });
 }
-const dBuscar = async (nome, pasta) => {
-  const q = `name='${nome}' and trashed=false` + (pasta ? ` and '${pasta}' in parents` : "");
-  return (await (await dapi("files?q=" + encodeURIComponent(q) + "&fields=files(id,modifiedTime)")).json()).files[0] || null;
-};
-async function dCriar(nome, blob, pasta, mime) {
-  const meta = { name: nome, parents: pasta ? [pasta] : [] };
-  if (!blob) meta.mimeType = "application/vnd.google-apps.folder";
-  const fd = new FormData();
-  fd.append("metadata", new Blob([JSON.stringify(meta)], { type: "application/json" }));
-  if (blob) fd.append("file", new Blob([blob], { type: mime }));
-  const r = await dapi(blob ? "files?uploadType=multipart&fields=id" : "files?fields=id", { method: "POST", body: blob ? fd : JSON.stringify(meta), headers: blob ? {} : { "Content-Type": "application/json" } }, !!blob);
-  return (await r.json()).id;
+
+async function entrar(email, senha) {
+  const c = cliente(); if (!c) throw new Error("biblioteca da nuvem não carregou (sem internet?)");
+  const { data, error } = await c.auth.signInWithPassword({ email: email.trim(), password: senha });
+  if (error) throw new Error(error.message === "Invalid login credentials" ? "e-mail ou senha incorretos" : error.message);
+  await lerPerfil();
+  S.meta.sync = Object.assign({ ultimo: "" }, S.meta.sync, { ligado: true });
+  salvar();
+  return data;
 }
-const dAtualizar = (id, blob, mime) => dapi("files/" + id + "?uploadType=media", { method: "PATCH", body: blob, headers: { "Content-Type": mime } }, true);
-async function pastaDrive() {
-  const p = await dBuscar("Assistência Técnica");
-  return p ? p.id : dCriar("Assistência Técnica", null);
+async function sair() {
+  const c = cliente(); if (c) await c.auth.signOut().catch(() => { });
+  NUVEM.estado = "off"; NUVEM.email = ""; NUVEM.papel = "";
+  if (S.meta.sync) S.meta.sync.ligado = false;
+  salvar(); render();
 }
+async function lerPerfil() {
+  const c = cliente(); if (!c) return null;
+  const { data: { session } } = await c.auth.getSession();
+  if (!session) { NUVEM.estado = "off"; NUVEM.email = ""; NUVEM.papel = ""; return null; }
+  NUVEM.email = session.user.email;
+  const { data } = await c.from("perfis").select("papel,nome").eq("user_id", session.user.id).maybeSingle();
+  NUVEM.papel = (data || {}).papel || "sem perfil";
+  if (NUVEM.estado === "off") NUVEM.estado = "pronto";
+  return session;
+}
+const podeEditarNuvem = () => NUVEM.papel === "admin" || NUVEM.papel === "registrador";
+
 async function sincronizar(interativo) {
-  if (DRIVE.estado === "busy") return;
-  let mudou = false;
+  const c = cliente();
+  if (!c) { if (interativo) alert("A biblioteca da nuvem não carregou. Verifique a internet."); return; }
+  if (NUVEM.ocupado) return;
+  const sess = await lerPerfil();
+  if (!sess) { if (interativo) alert("Entre com e-mail e senha nos Ajustes."); return; }
+  NUVEM.ocupado = true; NUVEM.estado = "busy"; cabecalho();
+  const desde = (S.meta.sync && S.meta.sync.ultimo) || "1970-01-01T00:00:00Z";
+  let maior = desde, baixados = 0, subidos = 0;
   try {
-    if (!tokenValido()) { if (!interativo) return; await conectar(); }
-    DRIVE.estado = "busy"; cabecalho();
-    const pasta = await pastaDrive();
-    const arq = await dBuscar("assistencia.json", pasta);
-    let subir = !arq;
-    if (arq) {
-      const remoto = migrar(JSON.parse(await (await dapi("files/" + arq.id + "?alt=media")).text()));
-      const rs = remoto.meta.salvoEm || "", ls = S.meta.salvoEm || "";
-      if (rs > ls) { remoto.config.driveClientId = remoto.config.driveClientId || S.config.driveClientId; S = remoto; localStorage.setItem(KEY, JSON.stringify(S)); mudou = true; }
-      else if (ls > rs) subir = true;
+    // 1) baixa o que mudou lá
+    for (const t of TABELAS) {
+      const { data, error } = await c.from(t.tab).select("*").gt("atualizado_em", desde).order("atualizado_em");
+      if (error) throw new Error(t.tab + ": " + error.message);
+      for (const r of data) {
+        if (r.atualizado_em > maior) maior = r.atualizado_em;
+        const lista = S[t.arr];
+        const i = lista.findIndex(x => x.id === r.id);
+        if (r.excluido) { if (i >= 0) lista.splice(i, 1); delete marcas()[t.tab + ":" + r.id]; continue; }
+        const local = t.desce(r);
+        if (i >= 0) Object.assign(lista[i], local); else lista.push(local);
+        marcas()[t.tab + ":" + r.id] = assina(t.sobe(local));
+        baixados++;
+      }
     }
-    for (const f of S.fotos.filter(f => !f.driveId)) {
-      const b = await idb.get(f.id).catch(() => null); if (!b) continue;
-      f.driveId = await dCriar(f.id + ".jpg", b, pasta, "image/jpeg");
-      subir = true; mudou = true;
+    // 2) sobe as exclusões pendentes
+    const exc = S.meta.excluidos || [];
+    if (exc.length && podeEditarNuvem()) {
+      for (const t of TABELAS) {
+        const meus = exc.filter(x => x.tab === t.tab);
+        if (!meus.length) continue;
+        const { error } = await c.from(t.tab).update({ excluido: true }).in("id", meus.map(x => x.id));
+        if (error) throw new Error("exclusões em " + t.tab + ": " + error.message);
+        meus.forEach(x => delete marcas()[t.tab + ":" + x.id]);
+      }
+      S.meta.excluidos = [];
     }
-    if (subir) {
-      S.meta.salvoEm = S.meta.salvoEm || new Date().toISOString();
-      localStorage.setItem(KEY, JSON.stringify(S));
-      const blob = new Blob([JSON.stringify(S)], { type: "application/json" });
-      if (arq) await dAtualizar(arq.id, blob, "application/json"); else await dCriar("assistencia.json", blob, pasta, "application/json");
+    // 3) sobe o que mudou aqui
+    if (podeEditarNuvem()) {
+      const semObra = [];
+      for (const t of TABELAS) {
+        const mudados = [];
+        for (const o of S[t.arr]) {
+          const linha = t.sobe(o);
+          if (!linha.obra_id && t.tab !== "obras") { semObra.push(t.tab); continue; }
+          const chave = t.tab + ":" + o.id, m = assina(linha);
+          if (marcas()[chave] !== m) mudados.push({ linha, chave, m });
+        }
+        for (let i = 0; i < mudados.length; i += 200) {
+          const lote = mudados.slice(i, i + 200);
+          const { data, error } = await c.from(t.tab).upsert(lote.map(x => x.linha)).select("id,atualizado_em");
+          if (error) throw new Error(t.tab + ": " + error.message);
+          lote.forEach(x => { marcas()[x.chave] = x.m; });
+          (data || []).forEach(r => { if (r.atualizado_em > maior) maior = r.atualizado_em; });
+          subidos += lote.length;
+        }
+      }
+      if (semObra.length) console.warn("registros sem obra não foram enviados:", semObra.length);
+      // ajustes da empresa: uma linha só, compartilhada
+      const cfg = JSON.parse(JSON.stringify(S.config));
+      const mc = assina(cfg);
+      if (marcas()["config"] !== mc) {
+        const { error } = await c.from("config").upsert({ id: "geral", dados: cfg });
+        if (!error) marcas()["config"] = mc;
+      }
+    } else {
+      const { data } = await c.from("config").select("dados").eq("id", "geral").maybeSingle();
+      if (data && data.dados) { S.config = Object.assign(PADRAO().config, data.dados); marcas()["config"] = assina(JSON.parse(JSON.stringify(S.config))); }
     }
-    DRIVE.estado = "sync"; DRIVE.quando = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    S.meta.sync = Object.assign({}, S.meta.sync, { ligado: true, ultimo: maior });
+    localStorage.setItem(KEY, JSON.stringify(S));
+    NUVEM.estado = "sync"; NUVEM.erro = "";
+    NUVEM.quando = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    if (interativo) alert("Sincronizado: " + baixados + " recebido(s), " + subidos + " enviado(s).");
   } catch (e) {
-    DRIVE.estado = tokenValido() ? "err" : "off"; DRIVE.erro = e.message;
+    NUVEM.estado = "err"; NUVEM.erro = e.message;
     if (interativo) alert("Não sincronizou: " + e.message);
   }
-  if (mudou || tela === "ajustes") render(); else cabecalho();
+  NUVEM.ocupado = false;
+  render();
 }
 function agendarSync() {
-  if (!tokenValido()) return;
-  clearTimeout(DRIVE.timer);
-  DRIVE.timer = setTimeout(() => sincronizar(false), 3000);
+  if (!S.meta.sync || !S.meta.sync.ligado) return;
+  clearTimeout(NUVEM.timer);
+  NUVEM.timer = setTimeout(() => sincronizar(false), 4000);
 }
 
 // --- formulário PSQ 08-04: réplica em HTML da planilha da empresa ---------
@@ -1720,7 +1801,7 @@ function acao(a, id, el) {
     case "excluirObra":
       if (modulosDe(id).length) return alert("Essa obra ainda tem módulos. Exclua ou mova os módulos antes.");
       if (!confirm("Excluir a obra?")) return;
-      S.obras = S.obras.filter(x => x.id !== id); selObra = null; mostrarDetalhe = false; salvar(); return render();
+      marcarExcluido("obras", id); S.obras = S.obras.filter(x => x.id !== id); selObra = null; mostrarDetalhe = false; salvar(); return render();
     case "obraNoForm": {
       const f = dlg.querySelector("form"), guardado = f ? Object.fromEntries(new FormData(f).entries()) : {};
       dlg.close();
@@ -1737,7 +1818,7 @@ function acao(a, id, el) {
     case "excluirCond":
       if (casasDe(id).length) return alert("Esse condomínio ainda tem casas. Mova ou exclua as casas antes.");
       if (!confirm("Excluir o condomínio?")) return;
-      S.condominios = S.condominios.filter(x => x.id !== id); selCond = null; mostrarDetalhe = false; salvar(); return render();
+      marcarExcluido("modulos", id); S.condominios = S.condominios.filter(x => x.id !== id); selCond = null; mostrarDetalhe = false; salvar(); return render();
     case "novoImovel": return formImovel(null, null, filtroCond || selCond);
     case "editarImovel": return formImovel(im);
     case "imovelNoForm": {
@@ -1749,10 +1830,13 @@ function acao(a, id, el) {
       const n = S.chamados.filter(x => x.imovelId === id).length;
       if (!confirm("Excluir o imóvel" + (n ? " e seus " + n + " chamados" : "") + "?")) return;
       const cs = S.chamados.filter(x => x.imovelId === id).map(x => x.id);
+      cs.forEach(x => marcarExcluido("chamados", x));
       S.chamados = S.chamados.filter(x => x.imovelId !== id);
       S.visitas.filter(x => cs.includes(x.chamadoId)).forEach(x => fotosDe(x.id).forEach(f => excluirFoto(f.id)));
       cs.forEach(x => fotosDe(x).forEach(f => excluirFoto(f.id)));
+      S.visitas.filter(x => cs.includes(x.chamadoId)).forEach(x => marcarExcluido("visitas", x.id));
       S.visitas = S.visitas.filter(x => !cs.includes(x.chamadoId));
+      marcarExcluido("imoveis", id);
       S.imoveis = S.imoveis.filter(x => x.id !== id);
       selIm = null; mostrarDetalhe = false; salvar(); return render();
     }
@@ -1760,7 +1844,9 @@ function acao(a, id, el) {
       if (!confirm("Excluir o chamado e suas visitas?")) return;
       visitasDe(id).forEach(x => fotosDe(x.id).forEach(f => excluirFoto(f.id)));
       fotosDe(id).forEach(f => excluirFoto(f.id));
+      S.visitas.filter(x => x.chamadoId === id).forEach(x => marcarExcluido("visitas", x.id));
       S.visitas = S.visitas.filter(x => x.chamadoId !== id);
+      marcarExcluido("chamados", id);
       S.chamados = S.chamados.filter(x => x.id !== id);
       sel = null; mostrarDetalhe = false; salvar(); return render();
     }
@@ -1785,7 +1871,7 @@ function acao(a, id, el) {
     case "excluirVisita":
       if (!confirm("Excluir essa visita?")) return;
       fotosDe(id).forEach(f => excluirFoto(f.id));
-      S.visitas = S.visitas.filter(x => x.id !== id); salvar(); return render();
+      marcarExcluido("visitas", id); S.visitas = S.visitas.filter(x => x.id !== id); salvar(); return render();
     case "ics": return baixar("visita-" + v.data + ".ics", ics(v), "text/calendar");
     case "addFoto": fotoRef = el.dataset.ref; return document.getElementById("fileFoto").click();
     case "verFoto": return verFoto(id);
@@ -1817,6 +1903,13 @@ function acao(a, id, el) {
     case "rmPessoa": if (S.config.pessoas.length === 1) return alert("Precisa ter pelo menos uma pessoa."); lerAjustes(); S.config.pessoas = S.config.pessoas.filter(p => p.id !== id); if (!S.config.pessoas.some(p => p.padrao)) S.config.pessoas[0].padrao = true; salvar(); return render();
     case "salvarCfg": lerAjustes(); salvar(); render(); return alert("Ajustes salvos.");
     case "sync": lerAjustes(); salvar(); return sincronizar(true);
+    case "entrarNuvem": {
+      const em = document.getElementById("aEmail").value, se = document.getElementById("aSenha").value;
+      if (!em || !se) return alert("Preencha e-mail e senha.");
+      lerAjustes(); salvar();
+      return entrar(em, se).then(() => { render(); return sincronizar(true); }).catch(e => alert("Não entrou: " + e.message));
+    }
+    case "sairNuvem": if (confirm("Sair da conta? Os dados continuam neste aparelho.")) sair(); return;
     case "csv": {
       const m = new Map();
       S.chamados.forEach(x => itens(x).forEach(it => {
@@ -1874,7 +1967,7 @@ document.addEventListener("change", e => {
 });
 main.addEventListener("click", e => { if (e.target.matches("img[data-foto]") && e.target.src) verFoto(e.target.dataset.foto); });
 document.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => ir(b.dataset.tab));
-document.getElementById("btnDrive").onclick = () => { if (!S.config.driveClientId) { ir("ajustes"); return alert("Cole o Client ID do Google nos ajustes pra conectar ao Drive."); } sincronizar(true); };
+document.getElementById("btnDrive").onclick = () => { if (!NUVEM.email) return ir("ajustes"); sincronizar(true); };
 
 // --- autoteste: abrir com ?teste=1 -------------------------------------
 function autoteste() {
@@ -2003,7 +2096,7 @@ if (location.search.includes("teste")) autoteste();
 else {
   if (fecharVencidos()) { salvar(); setTimeout(() => alert("Chamados com prazo de aceite vencido foram fechados automaticamente (aceite por decurso de prazo)."), 400); }
   render();
-  if (tokenValido()) sincronizar(false);
+  lerPerfil().then(sess => { if (sess) { cabecalho(); sincronizar(false); } });
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => { });
 }
 </script>

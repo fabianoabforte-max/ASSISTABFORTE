@@ -257,7 +257,7 @@ dialog .big{max-width:100%;max-height:75vh;display:block;margin:0 auto;border-ra
 <script>
 "use strict";
 const KEY = "assist_v1";
-const VERSAO = "2026-11-13c";
+const VERSAO = "2026-11-13d";
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 // Prazos do Manual do Proprietário do empreendimento (tabela da ABNT NBR
@@ -1799,6 +1799,19 @@ function ics(v) {
 // O botão nunca é desabilitado — clicar sempre produz resposta visível.
 const telaLogin = document.getElementById("login");
 const ULTIMO_EMAIL = "assist_ultimo_email";
+const TRILHA = "assist_trilha";
+
+// Registro do que acontece ao entrar. Sem isso, uma falha no meio do caminho
+// não deixa rastro nenhum e só sobra o "não aconteceu nada".
+function marco(etapa, extra) {
+  try {
+    const t = JSON.parse(localStorage.getItem(TRILHA) || "[]");
+    t.push({ h: new Date().toLocaleTimeString("pt-BR"), etapa, extra: extra == null ? null : String(extra).slice(0, 400) });
+    localStorage.setItem(TRILHA, JSON.stringify(t.slice(-40)));
+  } catch (e) { /* registro nunca pode atrapalhar o que está registrando */ }
+}
+addEventListener("error", ev => marco("erro solto", (ev.message || "") + " @ " + (ev.filename || "") + ":" + (ev.lineno || "")));
+addEventListener("unhandledrejection", ev => marco("promessa solta", (ev.reason && ev.reason.message) || ev.reason));
 
 // aviso da tela: tipo "er" (erro), "wa" (atenção) ou "in" (informação)
 function avisoLogin(msg, tipo) {
@@ -1879,20 +1892,42 @@ document.getElementById("formLogin").addEventListener("submit", async ev => {
   entrando = true;
   b.textContent = "Entrando…"; b.setAttribute("aria-busy", "true");
   avisoLogin("");
+  let etapa = "início";
   try {
+    marco("clicou em entrar", em);
+    etapa = "carregar a biblioteca da nuvem";
     const c = await esperarCliente(10000);
     if (!c) throw new Error("A conexão com a nuvem não carregou. A rede pode estar bloqueando — recarregue a página.");
-    const { user } = await comPrazo(entrar(em, se), 20000);
+
+    etapa = "conferir e-mail e senha no servidor";
+    marco(etapa);
+    const dados = await comPrazo(entrar(em, se), 20000);
+    if (!dados || !dados.user) throw new Error("O servidor aceitou a senha mas não devolveu a conta.");
+    marco("autenticou", dados.user.email);
+
+    etapa = "preparar os dados deste aparelho";
     localStorage.setItem(ULTIMO_EMAIL, em);
-    const trocou = conferirDono(user.id);
+    const trocou = conferirDono(dados.user.id);
     salvar();
+    marco("dono conferido", trocou ? "trocou de conta: dados locais limpos" : "mesma conta de antes");
+
+    etapa = "abrir o app";
     abrirApp();
-    await sincronizar(false).catch(() => { });
+    marco("app aberto");
+
+    etapa = "baixar os dados da nuvem";
+    await sincronizar(false).catch(e => marco("sincronização falhou", e && e.message));
+    marco("sincronizou", "obras " + S.obras.length + " · imóveis " + S.imoveis.length + " · chamados " + S.chamados.length);
+
     if (trocou) alert("Este aparelho estava com os dados de outra conta. Foram limpos e os desta conta foram baixados.");
     conferirAcesso();
+    marco("entrou");
   } catch (e) {
     console.error("entrar:", e);
-    mostrarLogin(explicaErro(e));
+    marco("PAROU em: " + etapa, (e && e.message) + " || " + (e && e.stack || "").split(String.fromCharCode(10)).slice(0, 3).join(" / "));
+    // senha errada é erro comum e não precisa de etapa; o resto precisa
+    const comum = etapa === "conferir e-mail e senha no servidor" && /incorretos|confirmada|desativado|Não existe conta/.test(explicaErro(e));
+    mostrarLogin(explicaErro(e) + (comum ? "" : " (parou em: " + etapa + ")"));
   } finally {
     entrando = false;
     b.textContent = "Entrar"; b.removeAttribute("aria-busy");

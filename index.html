@@ -163,14 +163,14 @@ nav.bottom{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-
 nav.bottom button{flex:1;background:none;border:0;padding:9px 0 11px;font-size:11px;color:var(--tx3);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px}
 nav.bottom button svg,aside button svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 nav.bottom button[aria-current=page]{color:var(--tx);font-weight:600}
-#login{position:fixed;inset:0;z-index:50;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px}
+#login{position:fixed;inset:0;z-index:50;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto}
 #login .box{width:100%;max-width:380px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px}
 #login h1{font-size:20px;line-height:1.2}
 #login p.sub{margin:4px 0 20px;font-size:13px;color:var(--tx2)}
 #login .marca{display:flex;align-items:center;gap:10px;margin-bottom:2px}
 #login .marca svg{width:30px;height:30px;flex:none}
-#login .err{background:var(--er-bg);color:var(--er-tx);border-radius:9px;padding:9px 11px;font-size:13px;margin-bottom:12px}
 #login .rod{font-size:12px;color:var(--tx3);margin:16px 0 0;text-align:center}
+#login .btn[aria-busy="true"]{opacity:.7;cursor:default}
 body.travado{overflow:hidden}
 body.travado .app,body.travado nav.bottom{display:none}
 dialog{border:0;border-radius:14px;padding:0;max-width:560px;width:calc(100% - 24px);background:var(--card);color:var(--tx);box-shadow:0 10px 40px rgba(0,0,0,.3)}
@@ -236,19 +236,19 @@ dialog .big{max-width:100%;max-height:75vh;display:block;margin:0 auto;border-ra
   <button data-tab="ajustes"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>ajustes</button>
 </nav>
 <div id="login" hidden>
-  <div class="box">
+  <form class="box" id="formLogin">
     <div class="marca">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8M5 10v10h14V10"/><path d="M9.5 13.5l1.8 1.8a1.6 1.6 0 0 0 2.2 0l.6-.6"/></svg>
       <h1>Assistência Técnica</h1>
     </div>
     <p class="sub">Pós-obra · garantia</p>
-    <div class="err hide" id="loginErr"></div>
-    <div class="field"><label for="lEmail">E-mail</label><input id="lEmail" type="email" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="voce@empresa.com"></div>
-    <div class="field"><label for="lSenha">Senha</label><input id="lSenha" type="password" autocomplete="current-password"></div>
-    <button class="btn" id="btnEntrar">Entrar</button>
+    <div class="note hide" id="loginAviso"><span></span></div>
+    <div class="field"><label for="lEmail">E-mail</label><input id="lEmail" name="email" type="email" required autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="voce@empresa.com"></div>
+    <div class="field"><label for="lSenha">Senha</label><input id="lSenha" name="password" type="password" required autocomplete="current-password"></div>
+    <button class="btn" type="submit" id="btnEntrar">Entrar</button>
     <p class="rod">Não tem acesso? Fale com o administrador do sistema.</p>
-    <p class="rod" id="loginDiag" style="margin-top:6px"></p>
-  </div>
+    <p class="rod" id="loginPe"></p>
+  </form>
 </div>
 <dialog id="dlg"></dialog>
 <input type="file" id="fileImp" accept=".json" hidden>
@@ -257,7 +257,7 @@ dialog .big{max-width:100%;max-height:75vh;display:block;margin:0 auto;border-ra
 <script>
 "use strict";
 const KEY = "assist_v1";
-const VERSAO = "2026-11-13";
+const VERSAO = "2026-11-13b";
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 // Prazos do Manual do Proprietário do empreendimento (tabela da ABNT NBR
@@ -1795,30 +1795,39 @@ function ics(v) {
 }
 
 // --- porta de entrada ---------------------------------------------------
-// Sem conta não entra. Depois do primeiro login o aparelho guarda a sessão,
-// então nas visitas seguintes o app abre mesmo sem sinal.
+// Uma regra só: ou o app abre, ou a tela diz por quê. Nunca fica parada.
+// O botão nunca é desabilitado — clicar sempre produz resposta visível.
 const telaLogin = document.getElementById("login");
-function mostrarLogin(msg) {
+const ULTIMO_EMAIL = "assist_ultimo_email";
+
+// aviso da tela: tipo "er" (erro), "wa" (atenção) ou "in" (informação)
+function avisoLogin(msg, tipo) {
+  const e = document.getElementById("loginAviso");
+  e.firstElementChild.textContent = msg || "";
+  e.className = "note " + (tipo || "er") + (msg ? "" : " hide");
+}
+
+function mostrarLogin(msg, tipo) {
   document.body.classList.add("travado");
   telaLogin.hidden = false;
-  const e = document.getElementById("loginErr");
-  e.textContent = msg || ""; e.classList.toggle("hide", !msg);
-  const d = document.getElementById("loginDiag");
-  const ok = !!cliente();
-  if (d) {
-    d.textContent = "versão " + VERSAO + " · " + (ok ? "servidor acessível" : "SEM conexão com a nuvem");
-    d.style.color = ok ? "" : "var(--er-tx)";
+  avisoLogin(msg, tipo);
+  document.getElementById("loginPe").textContent = "versão " + VERSAO;
+  // quem entrou da última vez neste aparelho já vem preenchido: evita
+  // entrar sem querer com outra conta da empresa
+  const em = document.getElementById("lEmail");
+  if (!em.value) em.value = localStorage.getItem(ULTIMO_EMAIL) || "";
+  if (matchMedia("(min-width:900px)").matches) {
+    (em.value ? document.getElementById("lSenha") : em).focus();
   }
-  const b = document.getElementById("btnEntrar");
-  if (b) b.disabled = !ok;
-  const el = document.getElementById("lEmail");
-  if (el && matchMedia("(min-width:900px)").matches) el.focus();
 }
+
 function abrirApp() {
   telaLogin.hidden = true;
   document.body.classList.remove("travado");
+  document.getElementById("lSenha").value = "";
   render();
 }
+
 // Trocou de pessoa no mesmo aparelho: os dados do anterior não podem ficar.
 function conferirDono(uid) {
   if (S.meta.dono && S.meta.dono !== uid) {
@@ -1832,34 +1841,63 @@ function conferirDono(uid) {
   S.meta.dono = uid;
   return false;
 }
-// 25 s sem resposta já é resposta: avisa em vez de deixar o botão parado
+
+// Promessa que não pode ficar pendurada para sempre.
 const comPrazo = (promessa, ms) => Promise.race([promessa,
-  new Promise((_, rej) => setTimeout(() => rej(new Error("O servidor não respondeu. Verifique a internet e tente de novo.")), ms))]);
-async function tentarEntrar() {
+  new Promise((_, rej) => setTimeout(() => rej(new Error("O servidor não respondeu. Tente de novo.")), ms))]);
+
+// A biblioteca da nuvem vem de fora e pode demorar; espera o necessário.
+const esperarCliente = ms => new Promise(ok => {
+  const limite = Date.now() + ms;
+  (function tenta() {
+    const c = cliente();
+    if (c || Date.now() > limite) return ok(c);
+    setTimeout(tenta, 200);
+  })();
+});
+
+// Entrou numa conta que não enxerga nada: dizer isso é mais útil do que
+// mostrar um app vazio.
+function conferirAcesso() {
+  if (NUVEM.papel === "sem perfil") {
+    return alert("Você entrou como " + NUVEM.email + ", mas essa conta ainda não tem perfil no sistema. Peça ao administrador para liberar o acesso.");
+  }
+  if (NUVEM.papel !== "admin" && !S.obras.length) {
+    alert("Você entrou como " + NUVEM.email + " (" + NUVEM.papel + "), mas nenhuma obra foi liberada para essa conta. Por isso o app aparece vazio.");
+  }
+}
+
+let entrando = false;
+document.getElementById("formLogin").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  if (entrando) return;
   const em = document.getElementById("lEmail").value.trim();
   const se = document.getElementById("lSenha").value;
-  if (!em || !se) return mostrarLogin("Preencha e-mail e senha.");
-  if (!cliente()) return mostrarLogin("A biblioteca da nuvem não carregou — a rede pode estar bloqueando. Recarregue a página (Ctrl+Shift+R).");
+  if (!em || !se) return avisoLogin("Preencha e-mail e senha.");
+
   const b = document.getElementById("btnEntrar");
-  b.disabled = true; b.textContent = "Entrando…";
-  let dados = null;
+  entrando = true;
+  b.textContent = "Entrando…"; b.setAttribute("aria-busy", "true");
+  avisoLogin("");
   try {
-    dados = await comPrazo(entrar(em, se), 25000);
+    const c = await esperarCliente(10000);
+    if (!c) throw new Error("A conexão com a nuvem não carregou. A rede pode estar bloqueando — recarregue a página.");
+    const { user } = await comPrazo(entrar(em, se), 20000);
+    localStorage.setItem(ULTIMO_EMAIL, em);
+    const trocou = conferirDono(user.id);
+    salvar();
+    abrirApp();
+    await sincronizar(false).catch(() => { });
+    if (trocou) alert("Este aparelho estava com os dados de outra conta. Foram limpos e os desta conta foram baixados.");
+    conferirAcesso();
   } catch (e) {
-    console.error("login:", e);
+    console.error("entrar:", e);
     mostrarLogin(explicaErro(e));
+  } finally {
+    entrando = false;
+    b.textContent = "Entrar"; b.removeAttribute("aria-busy");
   }
-  b.disabled = false; b.textContent = "Entrar";
-  if (!dados) return;
-  const trocou = conferirDono(dados.user.id);
-  salvar();
-  abrirApp();
-  sincronizar(false).then(() => {
-    if (trocou) alert("Este aparelho estava com os dados de outra conta. Foram limpos e os seus foram baixados.");
-  });
-}
-document.getElementById("btnEntrar").onclick = () => tentarEntrar().catch(e => { console.error(e); mostrarLogin(explicaErro(e)); });
-document.getElementById("lSenha").addEventListener("keydown", e => { if (e.key === "Enter") tentarEntrar(); });
+});
 
 // --- eventos ------------------------------------------------------------
 let fotoRef = null;
@@ -2221,22 +2259,12 @@ else {
   // enquanto não sabemos se há sessão, não mostra nada do app
   document.body.classList.add("travado");
   (async () => {
-    const c = cliente();
+    const c = await esperarCliente(10000);
+    if (!c) return mostrarLogin("Não foi possível carregar a conexão com a nuvem. A rede pode estar bloqueando — recarregue a página.");
     let sess = null;
-    try { sess = c ? (await c.auth.getSession()).data.session : null; }
-    catch (e) { sess = null; }
-    if (!sess) {
-      mostrarLogin(c ? "" : "Carregando a conexão com a nuvem…");
-      if (!c) {
-        let tentativas = 0;
-        const esperar = setInterval(() => {
-          if (cliente()) { clearInterval(esperar); mostrarLogin(""); }
-          else if (++tentativas > 20) { clearInterval(esperar); mostrarLogin("Não foi possível carregar a conexão com a nuvem. A rede pode estar bloqueando o acesso."); }
-        }, 500);
-      }
-      return;
-    }
-    // sessão guardada neste aparelho: abre mesmo offline
+    try { sess = (await c.auth.getSession()).data.session; } catch (e) { sess = null; }
+    if (!sess) return mostrarLogin("");
+    // sessão guardada neste aparelho: abre mesmo sem sinal
     conferirDono(sess.user.id); salvar();
     abrirApp();
     lerPerfil().catch(() => { });

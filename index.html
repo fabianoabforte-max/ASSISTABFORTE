@@ -260,7 +260,7 @@ dialog .big{max-width:100%;max-height:75vh;display:block;margin:0 auto;border-ra
 <script>
 "use strict";
 const KEY = "assist_v1";
-const VERSAO = "2026-11-13f";
+const VERSAO = "2026-11-13g";
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 // Prazos do Manual do Proprietário do empreendimento (tabela da ABNT NBR
@@ -1022,6 +1022,7 @@ function vAjustes() {
       ${NUVEM.papel === "sem perfil" ? '<div class="note er" style="margin-top:10px"><span>Sua conta não tem perfil no sistema. Fale com o administrador.</span></div>' : ""}
       <div class="acts" style="margin-top:10px">
         <button class="btn sm" data-act="sync">Sincronizar agora</button>
+        <button class="btn sec sm" data-act="senha">Trocar minha senha</button>
         ${NUVEM.papel === "admin" ? '<button class="btn sec sm" data-act="usuarios">Usuários e acessos</button>' : ""}
         <button class="btn sec sm" data-act="sairNuvem">Sair da conta</button>
       </div>`
@@ -1469,6 +1470,59 @@ function verFoto(id) {
   dlg.showModal();
 }
 
+// --- trocar a própria senha ---------------------------------------------
+// A conferência é feita aqui antes de falar com o servidor, pra pessoa não
+// precisar de uma ida e volta pra descobrir que digitou diferente.
+function validaSenha(atual, nova, repete) {
+  if ((nova || "").length < 8) return "A nova senha precisa de pelo menos 8 caracteres.";
+  if (nova !== repete) return "A nova senha e a repetição não são iguais.";
+  if (nova === atual) return "A nova senha é igual à atual.";
+  return "";
+}
+
+function avisoSenha(msg, tipo) {
+  const e = document.getElementById("sAviso");
+  if (!e) return;
+  e.firstElementChild.textContent = msg || "";
+  e.className = "note " + (tipo || "er") + (msg ? "" : " hide");
+}
+
+let trocandoSenha = false;
+async function trocarSenha(d) {
+  if (trocandoSenha) return;
+  const erro = validaSenha(d.atual, d.nova, d.repete);
+  if (erro) return avisoSenha(erro);
+  const c = cliente();
+  if (!c) return avisoSenha("A conexão com a nuvem não carregou.");
+  trocandoSenha = true;
+  avisoSenha("conferindo…", "in");
+  try {
+    // A senha atual é conferida de novo de propósito: sem isso, quem pegasse
+    // o computador destravado trocaria a senha de quem estava logado.
+    const r1 = await comPrazo(c.auth.signInWithPassword({ email: NUVEM.email, password: d.atual }), 20000);
+    if (r1.error) return avisoSenha("A senha atual está errada.");
+    const r2 = await comPrazo(c.auth.updateUser({ password: d.nova }), 20000);
+    if (r2.error) return avisoSenha(explicaErro(r2.error));
+    dlg.close();
+    alert("Senha trocada. Use a nova da próxima vez que entrar.");
+  } catch (e) {
+    avisoSenha(explicaErro(e));
+  } finally {
+    trocandoSenha = false;
+  }
+}
+
+function telaSenha() {
+  abrirForm(`<h3 style="margin:0 0 4px">Trocar minha senha</h3>
+    <p class="mut" style="font-size:12.5px;margin:0 0 12px">Conta: ${esc(NUVEM.email || "—")}</p>
+    <div class="note hide" id="sAviso"><span></span></div>
+    <div class="field"><label for="sAtual">Senha atual</label><input id="sAtual" name="atual" type="password" autocomplete="current-password" required></div>
+    <div class="field"><label for="sNova">Nova senha</label><input id="sNova" name="nova" type="password" autocomplete="new-password" required></div>
+    <div class="field"><label for="sRepete">Repita a nova senha</label><input id="sRepete" name="repete" type="password" autocomplete="new-password" required></div>
+    <p class="mut" style="font-size:12px;margin:0">Pelo menos 8 caracteres. A troca vale para todos os aparelhos onde você entra.</p>`,
+    d => { trocarSenha(d); return false; });   // false: o formulário só fecha quando der certo
+}
+
 // --- usuários e acessos (só admin) --------------------------------------
 // perfis e acesso_obras não entram na sincronização: valem para a empresa
 // inteira, não para este aparelho, então são lidos e gravados direto na nuvem.
@@ -1670,6 +1724,9 @@ function explicaErro(e) {
   if (m.includes("email logins are disabled") || m.includes("signups not allowed")) return "O login por e-mail está desativado no projeto.";
   if (m.includes("failed to fetch") || m.includes("networkerror") || m.includes("load failed")) return "Sem conexão com o servidor. Se a internet está boa, o projeto da nuvem pode ter pausado por falta de uso: abra o painel da Supabase e clique em Restore.";
   if (m.includes("too many requests") || m.includes("rate limit")) return "Muitas tentativas seguidas. Espere um minuto e tente de novo.";
+  if (m.includes("should be at least")) return "A senha é curta demais para o que o servidor aceita.";
+  if (m.includes("should be different")) return "A nova senha precisa ser diferente da atual.";
+  if (m.includes("weak") && m.includes("password")) return "Essa senha é fácil demais. Use uma combinação menos óbvia.";
   if (m.includes("user not found")) return "Não existe conta com esse e-mail.";
   return (e && e.message) || "Não foi possível entrar.";
 }
@@ -2168,6 +2225,7 @@ function acao(a, id, el) {
     case "rmPessoa": if (S.config.pessoas.length === 1) return alert("Precisa ter pelo menos uma pessoa."); lerAjustes(); S.config.pessoas = S.config.pessoas.filter(p => p.id !== id); if (!S.config.pessoas.some(p => p.padrao)) S.config.pessoas[0].padrao = true; salvar(); return render();
     case "salvarCfg": lerAjustes(); salvar(); render(); return alert("Ajustes salvos.");
     case "sync": lerAjustes(); salvar(); return sincronizar(true);
+    case "senha": return telaSenha();
     case "usuarios": return telaUsuarios();
     case "sairNuvem": if (confirm("Sair da conta?")) sair(); return;
     case "csv": {
@@ -2351,6 +2409,11 @@ function autoteste() {
   abrirApp();
   const sumiu = getComputedStyle(telaLogin).display === "none";
   T("tela de entrada aparece e some de verdade", apareceu && sumiu);
+  T("troca de senha: recusa curta, diferente da repetição e igual à atual",
+    validaSenha("velha123", "curta", "curta").includes("8 caracteres")
+    && validaSenha("velha123", "novaSenha1", "novaSenha2").includes("não são iguais")
+    && validaSenha("velha123", "velha123", "velha123").includes("igual à atual")
+    && validaSenha("velha123", "novaSenha1", "novaSenha1") === "");
   const du = {
     perfis: [{ user_id: "u1", email: "ana@empresa.com", papel: "admin" }, { user_id: "u2", email: "bia@empresa.com", papel: "leitor" }],
     acessos: [{ user_id: "u2", obra_id: "o1" }],

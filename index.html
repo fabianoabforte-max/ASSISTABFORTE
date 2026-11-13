@@ -257,7 +257,7 @@ dialog .big{max-width:100%;max-height:75vh;display:block;margin:0 auto;border-ra
 <script>
 "use strict";
 const KEY = "assist_v1";
-const VERSAO = "2026-11-13b";
+const VERSAO = "2026-11-13c";
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 // Prazos do Manual do Proprietário do empreendimento (tabela da ABNT NBR
@@ -2255,6 +2255,12 @@ async function conferirAtualizacao() {
 if (location.search.includes("teste")) autoteste();
 else {
   conferirAtualizacao();
+  // Uma aba aberta há dias nunca recebe correção nenhuma. Quando a pessoa
+  // volta pra ela e está na tela de entrada, confere a versão de novo —
+  // só nessa tela, pra nunca recarregar por cima de trabalho em andamento.
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && !telaLogin.hidden) conferirAtualizacao();
+  });
   if (fecharVencidos()) { salvar(); setTimeout(() => alert("Chamados com prazo de aceite vencido foram fechados automaticamente (aceite por decurso de prazo)."), 400); }
   // enquanto não sabemos se há sessão, não mostra nada do app
   document.body.classList.add("travado");

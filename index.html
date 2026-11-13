@@ -257,7 +257,7 @@ dialog .big{max-width:100%;max-height:75vh;display:block;margin:0 auto;border-ra
 <script>
 "use strict";
 const KEY = "assist_v1";
-const VERSAO = "2026-11-05g";
+const VERSAO = "2026-11-13";
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 // Prazos do Manual do Proprietário do empreendimento (tabela da ABNT NBR
@@ -1578,7 +1578,7 @@ function explicaErro(e) {
   if (m.includes("invalid login credentials")) return "E-mail ou senha incorretos.";
   if (m.includes("email not confirmed")) return "Esta conta ainda não foi confirmada. O administrador precisa confirmar o e-mail dela no painel (Authentication → Users → Confirm email).";
   if (m.includes("email logins are disabled") || m.includes("signups not allowed")) return "O login por e-mail está desativado no projeto.";
-  if (m.includes("failed to fetch") || m.includes("networkerror") || m.includes("load failed")) return "Sem conexão com o servidor. Verifique a internet.";
+  if (m.includes("failed to fetch") || m.includes("networkerror") || m.includes("load failed")) return "Sem conexão com o servidor. Se a internet está boa, o projeto da nuvem pode ter pausado por falta de uso: abra o painel da Supabase e clique em Restore.";
   if (m.includes("too many requests") || m.includes("rate limit")) return "Muitas tentativas seguidas. Espere um minuto e tente de novo.";
   if (m.includes("user not found")) return "Não existe conta com esse e-mail.";
   return (e && e.message) || "Não foi possível entrar.";

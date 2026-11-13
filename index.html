@@ -164,6 +164,9 @@ nav.bottom button{flex:1;background:none;border:0;padding:9px 0 11px;font-size:1
 nav.bottom button svg,aside button svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 nav.bottom button[aria-current=page]{color:var(--tx);font-weight:600}
 #login{position:fixed;inset:0;z-index:50;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto}
+/* o display:flex acima vence o [hidden] do navegador: sem esta linha a
+   tela de entrada continua por cima do app depois de entrar */
+#login[hidden]{display:none}
 #login .box{width:100%;max-width:380px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px}
 #login h1{font-size:20px;line-height:1.2}
 #login p.sub{margin:4px 0 20px;font-size:13px;color:var(--tx2)}
@@ -257,7 +260,7 @@ dialog .big{max-width:100%;max-height:75vh;display:block;margin:0 auto;border-ra
 <script>
 "use strict";
 const KEY = "assist_v1";
-const VERSAO = "2026-11-13d";
+const VERSAO = "2026-11-13e";
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 // Prazos do Manual do Proprietário do empreendimento (tabela da ABNT NBR
@@ -2251,6 +2254,13 @@ function autoteste() {
   S = PADRAO();
   try { vAgenda(); vPainel(); vChamados(); vImoveis(); } catch (e) { montou = false; console.error(e); }
   T("todas as telas montam vazias", montou);
+  // o atributo hidden sozinho não vence o display:flex do #login — este
+  // teste existe porque a tela de entrada ficou por cima do app sem ninguém ver
+  mostrarLogin("");
+  const apareceu = getComputedStyle(telaLogin).display !== "none";
+  abrirApp();
+  const sumiu = getComputedStyle(telaLogin).display === "none";
+  T("tela de entrada aparece e some de verdade", apareceu && sumiu);
   S = bkp;
   document.body.innerHTML = '<pre style="padding:16px;font:13px ui-monospace,monospace;white-space:pre-wrap">' +
     ok.join("\n") + "\n\n" + (ok.some(x => x.startsWith("FALHA")) ? "TEM FALHA" : "tudo passou") + "</pre>";
